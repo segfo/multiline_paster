@@ -67,57 +67,55 @@ fn judge_combo_key(lmap: &Vec<bool>) {
         }
     }
 }
+
 fn open_clipboard() {
     unsafe {
         // クリップボードを開く
+        let mut cb = clipboard.lock().unwrap();
         OpenClipboard(HWND::default());
-        let hText = GetClipboardData(CF_UNICODETEXT.0).unwrap();
-        if hText.is_invalid() {
-            println!("クリップボードにデータないよｗ");
-        } else {
-            // クリップボードにデータがあったらロックする
-            let pText = GlobalLock(hText.0);
-            // 今クリップボードにある内容をコピーする（改行で分割される）
-            // 後でここの挙動を変えても良さそう。
-            let mut cb = clipboard.lock().unwrap();
-            // use std::ffi::CString;
-            if cb.len() == 0 {
-                let text = u16_ptr_to_string(pText as *const _).into_string().unwrap();
-                // println!("copy: {text}");
-                for line in text.lines() {
-                    cb.push_front(line.to_owned());
+        if cb.len() == 0 {
+            let hText = GetClipboardData(CF_UNICODETEXT.0).unwrap();
+            if hText.is_invalid() {
+                println!("クリップボードにデータないよｗ");
+            } else {
+                // クリップボードにデータがあったらロックする
+                let pText = GlobalLock(hText.0);
+                // 今クリップボードにある内容をコピーする（改行で分割される）
+                // 後でここの挙動を変えても良さそう。
+
+                if cb.len() == 0 {
+                    let text = u16_ptr_to_string(pText as *const _).into_string().unwrap();
+                    // println!("copy: {text}");
+                    for line in text.lines() {
+                        if line.len() != 0 {
+                            cb.push_front(line.to_owned());
+                        }
+                    }
                 }
             }
-            // コピーしたデータを1行ずつ貼り付ける。
-            // コピーしたデータが全部なくなるまでこっちの挙動になる。
-            // 嫌なら自分で直して。オープンソースだし。
-            if cb.len() > 0 {
-                EmptyClipboard();
-                let data = OsString::from(cb.pop_back().unwrap()).encode_wide().collect::<Vec<u16>>();
-                let strdata_len = data.len()*2;
-                let data = data.as_ptr();
-                let gdata = GlobalAlloc(GHND | GLOBAL_ALLOC_FLAGS(GMEM_SHARE), strdata_len + 2);
-                let locked_data = GlobalLock(gdata);
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        data as *const u8,
-                        locked_data as *mut u8,
-                        strdata_len+2,
-                    );
-                }
-                match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
-                    Ok(handle) => {
-                        println!("set clipboard success.")
-                    }
-                    Err(e) => {
-                        println!("SetClipboardData failed. {:?}", e);
-                    }
-                }
-                // 終わったらアンロックする
-                GlobalUnlock(gdata);
-                GlobalUnlock(hText.0);
+            GlobalUnlock(hText.0);
+        }
+        // コピーしたデータを1行ずつ貼り付ける。
+        // コピーしたデータが全部なくなるまでこっちの挙動になる。
+        // 嫌なら自分で直して。オープンソースだし。
+        EmptyClipboard();
+        let data = cb.pop_back().unwrap();
+        let data = OsString::from(data).encode_wide().collect::<Vec<u16>>();
+        let strdata_len = data.len() * 2;
+        let data = data.as_ptr();
+        let gdata = GlobalAlloc(GHND | GLOBAL_ALLOC_FLAGS(GMEM_SHARE), strdata_len + 2);
+        let locked_data = GlobalLock(gdata);
+        std::ptr::copy_nonoverlapping(data as *const u8, locked_data as *mut u8, strdata_len + 2);
+        match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
+            Ok(handle) => {
+                println!("set clipboard success.")
+            }
+            Err(e) => {
+                println!("SetClipboardData failed. {:?}", e);
             }
         }
+        // 終わったらアンロックする
+        GlobalUnlock(gdata);
         // クリップボードも閉じる。
         CloseClipboard();
     }
@@ -150,7 +148,6 @@ pub extern "C" fn unhook() -> bool {
 unsafe fn u16_ptr_to_string(ptr: *const u16) -> OsString {
     let len = (0..).take_while(|&i| *ptr.offset(i) != 0).count();
     let slice = std::slice::from_raw_parts(ptr, len);
-    println!("{:?}",slice);
 
     OsString::from_wide(slice)
 }
