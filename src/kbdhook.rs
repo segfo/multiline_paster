@@ -1,18 +1,19 @@
-use std::{collections::VecDeque,sync::Mutex, ffi::CStr};
 use once_cell::unsync::*;
-use std::ffi::CString;
+use std::ffi::OsString;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::{collections::VecDeque, ffi::CStr, sync::Mutex};
 use windows::{
     core::*,
     Win32::{
         Foundation::*,
-        System::{WindowsProgramming::*,Memory::*,DataExchange::*, SystemServices::*},
+        System::{DataExchange::*, Memory::*, SystemServices::*, WindowsProgramming::*},
         UI::WindowsAndMessaging::*,
     },
 };
 static mut hook: HHOOK = HHOOK(0);
 
 static mut map: Lazy<Mutex<Vec<bool>>> = Lazy::new(|| Mutex::new(vec![false; 256]));
-static mut clipboard:Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(VecDeque::new()));
+static mut clipboard: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(VecDeque::new()));
 
 #[no_mangle]
 pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -54,8 +55,8 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
 
 fn judge_combo_key(lmap: &Vec<bool>) {
     // 0xA2:CTRL
-    if lmap[0xA2] == true{
-        if lmap[0x43] || lmap[0x58]{
+    if lmap[0xA2] == true {
+        if lmap[0x43] || lmap[0x58] {
             // 0x43:C
             // 0x58:X
             println!("copy");
@@ -70,7 +71,7 @@ fn open_clipboard() {
     unsafe {
         // クリップボードを開く
         OpenClipboard(HWND::default());
-        let hText = GetClipboardData(CF_TEXT.0).unwrap();
+        let hText = GetClipboardData(CF_UNICODETEXT.0).unwrap();
         if hText.is_invalid() {
             println!("クリップボードにデータないよｗ");
         } else {
@@ -79,26 +80,38 @@ fn open_clipboard() {
             // 今クリップボードにある内容をコピーする（改行で分割される）
             // 後でここの挙動を変えても良さそう。
             let mut cb = clipboard.lock().unwrap();
-            if cb.len()==0{
-                let text = CStr::from_ptr(pText as *const _).to_string_lossy();
-                for line in text.lines(){
+            // use std::ffi::CString;
+            if cb.len() == 0 {
+                let text = u16_ptr_to_string(pText as *const _).into_string().unwrap();
+                // println!("copy: {text}");
+                for line in text.lines() {
                     cb.push_front(line.to_owned());
                 }
             }
             // コピーしたデータを1行ずつ貼り付ける。
             // コピーしたデータが全部なくなるまでこっちの挙動になる。
             // 嫌なら自分で直して。オープンソースだし。
-            if cb.len()>0{
+            if cb.len() > 0 {
                 EmptyClipboard();
-                let strdata = cb.pop_back().unwrap();
-                let strdata_len = strdata.len();
-                let data =  CString::new(strdata).unwrap();
-                let gdata = GlobalAlloc(GHND | GLOBAL_ALLOC_FLAGS(GMEM_SHARE) , strdata_len+1);
+                let data = OsString::from(cb.pop_back().unwrap()).encode_wide().collect::<Vec<u16>>();
+                let strdata_len = data.len()*2;
+                let data = data.as_ptr();
+                let gdata = GlobalAlloc(GHND | GLOBAL_ALLOC_FLAGS(GMEM_SHARE), strdata_len + 2);
                 let locked_data = GlobalLock(gdata);
-                unsafe{std::ptr::copy_nonoverlapping(data.as_ptr(),locked_data as *mut i8,strdata_len);}
-                match SetClipboardData(CF_TEXT.0,HANDLE(gdata)){
-                    Ok(handle)=>{println!("set clipboard success.")},
-                    Err(e)=>{println!("SetClipboardData failed. {:?}",e);}
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        data as *const u8,
+                        locked_data as *mut u8,
+                        strdata_len+2,
+                    );
+                }
+                match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
+                    Ok(handle) => {
+                        println!("set clipboard success.")
+                    }
+                    Err(e) => {
+                        println!("SetClipboardData failed. {:?}", e);
+                    }
                 }
                 // 終わったらアンロックする
                 GlobalUnlock(gdata);
@@ -132,4 +145,12 @@ pub extern "C" fn unhook() -> bool {
         }
         false
     }
+}
+
+unsafe fn u16_ptr_to_string(ptr: *const u16) -> OsString {
+    let len = (0..).take_while(|&i| *ptr.offset(i) != 0).count();
+    let slice = std::slice::from_raw_parts(ptr, len);
+    println!("{:?}",slice);
+
+    OsString::from_wide(slice)
 }
