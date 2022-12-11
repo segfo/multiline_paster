@@ -60,15 +60,21 @@ fn judge_combo_key(lmap: &Vec<bool>) {
             // 0x43:C
             // 0x58:X
             println!("copy");
+            reset_clipboard();
         } else if lmap[0x56] {
             // 0x56: V
             println!("paste!");
-            open_clipboard();
+            write_clipboard();
         }
     }
 }
 
-fn open_clipboard() {
+fn reset_clipboard(){
+    let mut cb = unsafe{clipboard.lock().unwrap()};
+    cb.clear();
+}
+
+fn write_clipboard() {
     unsafe {
         // クリップボードを開く
         let mut cb = clipboard.lock().unwrap();
