@@ -17,7 +17,7 @@ static mut clipboard: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(Ve
 
 #[no_mangle]
 pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if HC_ACTION == 0 {
+    if HC_ACTION as i32 == ncode {
         let keystate = wparam.0 as u32;
         let stroke_msg = unsafe { *(lparam.0 as *const KBDLLHOOKSTRUCT) };
         match keystate {
