@@ -191,17 +191,7 @@ fn write_clipboard(lmap: &mut Vec<bool>) {
 fn control_key(pressed:bool,lmap: &mut Vec<bool>) {
     if lmap[0xA2] {
         unsafe {
-            // let mut kbd = KEYBDINPUT::default();
-            // let kl = GetKeyboardLayout(0);
             let vk = VIRTUAL_KEY(162);
-            // kbd.wVk = vk;
-            // kbd.wScan = MapVirtualKeyA(vk.0 as u32, MAPVK_VK_TO_VSC as u32) as u16;
-            // kbd.dwFlags = KEYBD_EVENT_FLAGS(0);
-            // kbd.time = 0;
-            // kbd.dwExtraInfo = GetMessageExtraInfo().0 as usize;
-            // let mut input = INPUT::default();
-            // input.r#type = INPUT_KEYBOARD;
-            // input.Anonymous.ki = kbd;
             let input = keyinput_generator(pressed,vk);
             let result = SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
         }
