@@ -45,7 +45,7 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
                     // C=0x43
                     // V=0x76
                     judge_combo_key(&mut lmap);
-                }else{
+                } else {
                     println!("[general key down] ncode={ncode} stroke={stroke_msg:?}");
                 }
             }
@@ -58,7 +58,7 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
                     let lmap = unsafe { &mut map.lock().unwrap() };
                     println!("[general key up] ncode={ncode} stroke={stroke_msg:?}");
                     lmap[stroke_msg.vkCode as usize] = false;
-                }else{
+                } else {
                     println!("[general key down] ncode={ncode} stroke={stroke_msg:?}");
                 }
             }
@@ -188,20 +188,17 @@ fn write_clipboard(lmap: &mut Vec<bool>) {
     }
 }
 
-fn control_key(pressed:bool,lmap: &mut Vec<bool>) {
-    if lmap[0xA2] {
-        unsafe {
-            let vk = VIRTUAL_KEY(162);
-            let input = keyinput_generator(pressed,vk);
-            let result = SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
+fn control_key(pressed: bool) -> INPUT {
+    unsafe {
+        let vk = VIRTUAL_KEY(162);
+        keyinput_generator(pressed, vk)
     }
 }
 
 fn shift_key(pressed: bool) -> INPUT {
-    keyinput_generator(pressed,VIRTUAL_KEY(160))
+    keyinput_generator(pressed, VIRTUAL_KEY(160))
 }
-fn keyinput_generator(pressed:bool,vk:VIRTUAL_KEY)->INPUT{
+fn keyinput_generator(pressed: bool, vk: VIRTUAL_KEY) -> INPUT {
     unsafe {
         let mut kbd = KEYBDINPUT::default();
         let vk = vk;
@@ -227,6 +224,7 @@ fn send_key_input(c: u16, lmap: &mut Vec<bool>) {
         let mut input_list = Vec::new();
         let kl = GetKeyboardLayout(0);
         let vk = VIRTUAL_KEY(VkKeyScanExA(CHAR(c as u8), kl) as u16);
+        input_list.push(control_key(false));
         if c < 0x7f {
             if vk.0 & 0x100 == 0x100 {
                 input_list.push(shift_key(true));
@@ -236,7 +234,7 @@ fn send_key_input(c: u16, lmap: &mut Vec<bool>) {
                 (vk.0) & 0x100 == 0x100,
                 (vk.0) & 0x200 == 0x200
             );
-            kbd.wVk = VIRTUAL_KEY(vk.0&0xff);
+            kbd.wVk = VIRTUAL_KEY(vk.0 & 0xff);
             kbd.wScan = MapVirtualKeyA(kbd.wVk.0 as u32, MAPVK_VK_TO_VSC as u32) as u16;
             kbd.dwFlags = KEYEVENTF_SCANCODE; //KEYBD_EVENT_FLAGS(0);
         } else {
@@ -253,9 +251,10 @@ fn send_key_input(c: u16, lmap: &mut Vec<bool>) {
         if vk.0 & 0x100 == 0x100 {
             input_list.push(shift_key(false));
         }
-        control_key(false,lmap);
+        input_list.push(control_key(true));
+        // control_key(false, lmap);
         let result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
-        control_key(true,lmap);
+        // control_key(true, lmap);
     }
 }
 
