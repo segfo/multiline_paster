@@ -2,19 +2,35 @@ use once_cell::unsync::*;
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::{collections::VecDeque, ffi::CStr, sync::Mutex};
+use windows::Win32::UI::Input;
 use windows::{
     core::*,
     Win32::{
         Foundation::*,
         System::{DataExchange::*, Memory::*, SystemServices::*, WindowsProgramming::*},
-        UI::WindowsAndMessaging::*,
+        UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
     },
 };
+
+
+#[derive(Debug,Clone,PartialEq)]
+pub enum InputMode {
+    Clipboard,
+    DirectKeyInput,
+}
+
 static mut hook: HHOOK = HHOOK(0);
 
 static mut map: Lazy<Mutex<Vec<bool>>> = Lazy::new(|| Mutex::new(vec![false; 256]));
 static mut clipboard: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(VecDeque::new()));
-
+static mut g_mode: Lazy<Mutex<InputMode>> = Lazy::new(|| Mutex::new(InputMode::DirectKeyInput));
+// クリップボード挿入モードか、DirectInputモードで動作するか選択できるようにする。
+pub fn set_mode(mode: InputMode) {
+    unsafe {
+        let mut locked_gmode = g_mode.lock().unwrap();
+        *locked_gmode = mode;
+    };
+}
 #[no_mangle]
 pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if HC_ACTION as i32 == ncode {
@@ -22,13 +38,15 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
         let stroke_msg = unsafe { *(lparam.0 as *const KBDLLHOOKSTRUCT) };
         match keystate {
             WM_KEYDOWN => {
-                println!("[general key] ncode={ncode} stroke={stroke_msg:?}");
-                let lmap = unsafe { &mut map.lock().unwrap() };
-                lmap[stroke_msg.vkCode as usize] = true;
-                // VK_CONTROL=0xA2
-                // C=0x43
-                // V=0x76
-                judge_combo_key(&lmap);
+                if stroke_msg.flags == KBDLLHOOKSTRUCT_FLAGS(0) {
+                    println!("[general key] ncode={ncode} stroke={stroke_msg:?}");
+                    let lmap = unsafe { &mut map.lock().unwrap() };
+                    lmap[stroke_msg.vkCode as usize] = true;
+                    // VK_CONTROL=0xA2
+                    // C=0x43
+                    // V=0x76
+                    judge_combo_key(&lmap);
+                }
             }
             WM_SYSKEYDOWN => {
                 let lmap = unsafe { &mut map.lock().unwrap() };
@@ -43,11 +61,6 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
                 lmap[stroke_msg.vkCode as usize] = false;
             }
             _ => {}
-        }
-        if keystate == WM_KEYDOWN {
-            // key
-        } else if keystate == WM_SYSKEYDOWN {
-            // system key(ALT+?/F10)
         }
     }
     unsafe { CallNextHookEx(hook, ncode, wparam, lparam) }
@@ -69,61 +82,134 @@ fn judge_combo_key(lmap: &Vec<bool>) {
     }
 }
 
-fn reset_clipboard(){
-    let mut cb = unsafe{clipboard.lock().unwrap()};
+fn reset_clipboard() {
+    let mut cb = unsafe { clipboard.lock().unwrap() };
     cb.clear();
+}
+struct Clipboard {}
+impl Clipboard {
+    fn open() -> Self {
+        unsafe {
+            OpenClipboard(HWND::default());
+        }
+        Clipboard {}
+    }
+}
+impl Drop for Clipboard {
+    fn drop(&mut self) {
+        unsafe {
+            CloseClipboard();
+        }
+    }
 }
 
 fn write_clipboard() {
     unsafe {
         // クリップボードを開く
         let mut cb = clipboard.lock().unwrap();
-        OpenClipboard(HWND::default());
+        // DropTraitを有効にするために変数に束縛する
+        // 束縛先の変数は未使用だが、最適化によってOpenClipboardが実行されなくなるので変数束縛は必ず行う。
+        let iclip = Clipboard::open();
         if cb.len() == 0 {
-            let hText = GetClipboardData(CF_UNICODETEXT.0).unwrap();
-            if hText.is_invalid() {
-                println!("クリップボードにデータないよｗ");
-            } else {
-                // クリップボードにデータがあったらロックする
-                let pText = GlobalLock(hText.0);
-                // 今クリップボードにある内容をコピーする（改行で分割される）
-                // 後でここの挙動を変えても良さそう。
+            let hText = GetClipboardData(CF_UNICODETEXT.0);
+            match hText {
+                Err(_) => {
+                    println!("クリップボードにデータないよｗ");
+                    return;
+                }
+                Ok(hText) => {
+                    // クリップボードにデータがあったらロックする
+                    let pText = GlobalLock(hText.0);
+                    // 今クリップボードにある内容をコピーする（改行で分割される）
+                    // 後でここの挙動を変えても良さそう。
 
-                if cb.len() == 0 {
-                    let text = u16_ptr_to_string(pText as *const _).into_string().unwrap();
-                    // println!("copy: {text}");
-                    for line in text.lines() {
-                        if line.len() != 0 {
-                            cb.push_front(line.to_owned());
+                    if cb.len() == 0 {
+                        let text = u16_ptr_to_string(pText as *const _).into_string().unwrap();
+                        // println!("copy: {text}");
+                        for line in text.lines() {
+                            if line.len() != 0 {
+                                cb.push_front(line.to_owned());
+                            }
                         }
                     }
+                    GlobalUnlock(hText.0);
                 }
             }
-            GlobalUnlock(hText.0);
         }
         // コピーしたデータを1行ずつ貼り付ける。
         // コピーしたデータが全部なくなるまでこっちの挙動になる。
         // 嫌なら自分で直して。オープンソースだし。
         EmptyClipboard();
-        let data = cb.pop_back().unwrap();
-        let data = OsString::from(data).encode_wide().collect::<Vec<u16>>();
+        let data = OsString::from(cb.pop_back().unwrap())
+            .encode_wide()
+            .collect::<Vec<u16>>();
         let strdata_len = data.len() * 2;
-        let data = data.as_ptr();
+        let data_ptr = data.as_ptr();
         let gdata = GlobalAlloc(GHND | GLOBAL_ALLOC_FLAGS(GMEM_SHARE), strdata_len + 2);
         let locked_data = GlobalLock(gdata);
-        std::ptr::copy_nonoverlapping(data as *const u8, locked_data as *mut u8, strdata_len + 2);
-        match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
-            Ok(handle) => {
-                println!("set clipboard success.")
+        std::ptr::copy_nonoverlapping(
+            data_ptr as *const u8,
+            locked_data as *mut u8,
+            strdata_len + 2,
+        );
+        let mode = g_mode.lock().unwrap();
+        if *mode == InputMode::DirectKeyInput {
+            let active_window = GetForegroundWindow();
+            if active_window.0 != 0 {
+                println!(
+                    "ウィンドウ {} に対してペーストが行われました。",
+                    get_window_text(active_window)
+                );
+            } else {
+                println!("アクティブウィンドウに対するフォーカスが失われています。");
             }
-            Err(e) => {
-                println!("SetClipboardData failed. {:?}", e);
+            for c in data {
+                send_key_input(c as u16);
+            }
+        } else {
+            match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
+                Ok(_handle) => {
+                    println!("set clipboard success.");
+                }
+                Err(e) => {
+                    println!("SetClipboardData failed. {:?}", e);
+                }
             }
         }
-        // 終わったらアンロックする
+        // 終わったらアンロックしてからメモリを開放する
         GlobalUnlock(gdata);
-        // クリップボードも閉じる。
-        CloseClipboard();
+        GlobalFree(gdata);
+    }
+}
+
+fn send_key_input(c: u16) {
+    unsafe {
+        let mut input_list = Vec::new();
+        let mut kbd = KEYBDINPUT::default();
+        for i in 0..1 {
+            kbd.wVk = VIRTUAL_KEY(0);
+            kbd.wScan = c;
+            kbd.dwFlags = KEYEVENTF_UNICODE;
+            kbd.time = 0;
+            kbd.dwExtraInfo = GetMessageExtraInfo().0 as usize;
+            let mut input = INPUT::default();
+            input.r#type = INPUT_KEYBOARD;
+            input.Anonymous.ki = kbd;
+            input_list.push(input);
+        }
+        let result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
+fn get_window_text(hwnd: HWND) -> String {
+    unsafe {
+        let len = GetWindowTextLengthW(hwnd) as usize;
+        let mut buf = vec![0u16; len];
+        GetWindowTextW(hwnd, &mut buf);
+        OsString::from_wide(&buf)
+            .to_os_string()
+            .into_string()
+            .unwrap()
     }
 }
 
@@ -154,6 +240,5 @@ pub extern "C" fn unhook() -> bool {
 unsafe fn u16_ptr_to_string(ptr: *const u16) -> OsString {
     let len = (0..).take_while(|&i| *ptr.offset(i) != 0).count();
     let slice = std::slice::from_raw_parts(ptr, len);
-
     OsString::from_wide(slice)
 }
