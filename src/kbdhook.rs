@@ -252,9 +252,7 @@ fn send_key_input(c: u16, lmap: &mut Vec<bool>) {
             input_list.push(shift_key(false));
         }
         input_list.push(control_key(true));
-        // control_key(false, lmap);
         let result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
-        // control_key(true, lmap);
     }
 }
 
