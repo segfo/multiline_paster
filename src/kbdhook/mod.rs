@@ -1,10 +1,12 @@
 use once_cell::unsync::*;
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::{collections::VecDeque, ffi::CStr, sync::Mutex};
-use windows::Win32::UI::Input;
+use std::{
+    collections::VecDeque,
+    sync::{Mutex, RwLock},
+};
+
 use windows::{
-    core::*,
     Win32::{
         Foundation::*,
         System::{DataExchange::*, Memory::*, SystemServices::*, WindowsProgramming::*},
@@ -20,9 +22,10 @@ pub enum InputMode {
 
 static mut hook: HHOOK = HHOOK(0);
 
-static mut map: Lazy<Mutex<Vec<bool>>> = Lazy::new(|| Mutex::new(vec![false; 256]));
+static mut map: Lazy<RwLock<Vec<bool>>> = Lazy::new(|| RwLock::new(vec![false; 256]));
 static mut clipboard: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(VecDeque::new()));
 static mut g_mode: Lazy<Mutex<InputMode>> = Lazy::new(|| Mutex::new(InputMode::DirectKeyInput));
+
 // クリップボード挿入モードか、DirectInputモードで動作するか選択できるようにする。
 pub fn set_mode(mode: InputMode) {
     unsafe {
@@ -30,6 +33,7 @@ pub fn set_mode(mode: InputMode) {
         *locked_gmode = mode;
     };
 }
+use async_std::task;
 #[no_mangle]
 pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if HC_ACTION as i32 == ncode {
@@ -39,23 +43,29 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
             WM_KEYDOWN => {
                 if stroke_msg.flags == KBDLLHOOKSTRUCT_FLAGS(0) {
                     println!("[general key down] ncode={ncode} stroke={stroke_msg:?}");
-                    let mut lmap = unsafe { &mut map.lock().unwrap() };
-                    lmap[stroke_msg.vkCode as usize] = true;
+                    // 書き込み処理は迅速に、最小スコープで実施する。
+                    {
+                        let lmap = unsafe { &mut map.write().unwrap() };
+                        lmap[stroke_msg.vkCode as usize] = true;
+                    }
+                    // 深い処理は基本的に読み取りのみとしたい。
+                    let lmap = unsafe { &mut map.read().unwrap() };
                     // VK_CONTROL=0xA2
                     // C=0x43
                     // V=0x76
-                    judge_combo_key(&mut lmap);
+                    println!("judge_combo_key");
+                    judge_combo_key(&lmap);
                 } else {
                     println!("[general key down] ncode={ncode} stroke={stroke_msg:?}");
                 }
             }
             WM_SYSKEYDOWN => {
-                let lmap = unsafe { &mut map.lock().unwrap() };
+                let lmap = unsafe { &mut map.write().unwrap() };
                 lmap[stroke_msg.vkCode as usize] = true;
             }
             WM_KEYUP => {
                 if stroke_msg.flags == KBDLLHOOKSTRUCT_FLAGS(128) {
-                    let lmap = unsafe { &mut map.lock().unwrap() };
+                    let lmap = unsafe { &mut map.write().unwrap() };
                     println!("[general key up] ncode={ncode} stroke={stroke_msg:?}");
                     lmap[stroke_msg.vkCode as usize] = false;
                 } else {
@@ -63,7 +73,7 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
                 }
             }
             WM_SYSKEYUP => {
-                let lmap = unsafe { &mut map.lock().unwrap() };
+                let lmap = unsafe { &mut map.write().unwrap() };
                 lmap[stroke_msg.vkCode as usize] = false;
             }
             _ => {}
@@ -72,7 +82,8 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
     unsafe { CallNextHookEx(hook, ncode, wparam, lparam) }
 }
 
-fn judge_combo_key(lmap: &mut Vec<bool>) {
+static mut thread_mutex: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(0));
+fn judge_combo_key(lmap: &Vec<bool>) {
     // 0xA2:CTRL
     if lmap[0xA2] == true {
         if lmap[0x43] || lmap[0x58] {
@@ -83,7 +94,9 @@ fn judge_combo_key(lmap: &mut Vec<bool>) {
         } else if lmap[0x56] {
             // 0x56: V
             println!("paste!");
-            write_clipboard(lmap);
+            // 基本的に重たい操作なので非同期で行う
+            // 意訳：さっさとフックチェーンにメッセージを登録しないとキーボードがハングする。
+            task::spawn(write_clipboard());
         }
     }
 }
@@ -109,7 +122,9 @@ impl Drop for Clipboard {
     }
 }
 
-fn write_clipboard(lmap: &mut Vec<bool>) {
+async fn write_clipboard() {
+    let mutex = unsafe { thread_mutex.lock().unwrap() };
+    println!("write_clipboard");
     unsafe {
         // クリップボードを開く
         let mut cb = clipboard.lock().unwrap();
@@ -170,7 +185,7 @@ fn write_clipboard(lmap: &mut Vec<bool>) {
                 println!("アクティブウィンドウに対するフォーカスが失われています。");
             }
             for c in data {
-                send_key_input(c as u16, lmap);
+                send_key_input(c as u16);
             }
         } else {
             match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
@@ -218,7 +233,7 @@ fn keyinput_generator(pressed: bool, vk: VIRTUAL_KEY) -> INPUT {
     }
 }
 
-fn send_key_input(c: u16, lmap: &mut Vec<bool>) {
+fn send_key_input(c: u16) {
     unsafe {
         let mut kbd = KEYBDINPUT::default();
         let mut input_list = Vec::new();

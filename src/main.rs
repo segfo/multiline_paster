@@ -16,7 +16,8 @@ struct CommandLineArgs{
     clipboard:bool
 }
 
-fn main() {
+#[async_std::main]
+async fn main() {
     sethook();
     let mut msg = MSG::default();
     let args = CommandLineArgs::parse();
