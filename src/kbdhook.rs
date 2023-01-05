@@ -38,13 +38,15 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
         match keystate {
             WM_KEYDOWN => {
                 if stroke_msg.flags == KBDLLHOOKSTRUCT_FLAGS(0) {
-                    println!("[general key] ncode={ncode} stroke={stroke_msg:?}");
-                    let lmap = unsafe { &mut map.lock().unwrap() };
+                    println!("[general key down] ncode={ncode} stroke={stroke_msg:?}");
+                    let mut lmap = unsafe { &mut map.lock().unwrap() };
                     lmap[stroke_msg.vkCode as usize] = true;
                     // VK_CONTROL=0xA2
                     // C=0x43
                     // V=0x76
-                    judge_combo_key(&lmap);
+                    judge_combo_key(&mut lmap);
+                }else{
+                    println!("[general key down] ncode={ncode} stroke={stroke_msg:?}");
                 }
             }
             WM_SYSKEYDOWN => {
@@ -52,8 +54,13 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
                 lmap[stroke_msg.vkCode as usize] = true;
             }
             WM_KEYUP => {
-                let lmap = unsafe { &mut map.lock().unwrap() };
-                lmap[stroke_msg.vkCode as usize] = false;
+                if stroke_msg.flags == KBDLLHOOKSTRUCT_FLAGS(128) {
+                    let lmap = unsafe { &mut map.lock().unwrap() };
+                    println!("[general key up] ncode={ncode} stroke={stroke_msg:?}");
+                    lmap[stroke_msg.vkCode as usize] = false;
+                }else{
+                    println!("[general key down] ncode={ncode} stroke={stroke_msg:?}");
+                }
             }
             WM_SYSKEYUP => {
                 let lmap = unsafe { &mut map.lock().unwrap() };
@@ -65,7 +72,7 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
     unsafe { CallNextHookEx(hook, ncode, wparam, lparam) }
 }
 
-fn judge_combo_key(lmap: &Vec<bool>) {
+fn judge_combo_key(lmap: &mut Vec<bool>) {
     // 0xA2:CTRL
     if lmap[0xA2] == true {
         if lmap[0x43] || lmap[0x58] {
@@ -76,7 +83,7 @@ fn judge_combo_key(lmap: &Vec<bool>) {
         } else if lmap[0x56] {
             // 0x56: V
             println!("paste!");
-            write_clipboard();
+            write_clipboard(lmap);
         }
     }
 }
@@ -102,7 +109,7 @@ impl Drop for Clipboard {
     }
 }
 
-fn write_clipboard() {
+fn write_clipboard(lmap: &mut Vec<bool>) {
     unsafe {
         // クリップボードを開く
         let mut cb = clipboard.lock().unwrap();
@@ -163,7 +170,7 @@ fn write_clipboard() {
                 println!("アクティブウィンドウに対するフォーカスが失われています。");
             }
             for c in data {
-                send_key_input(c as u16);
+                send_key_input(c as u16, lmap);
             }
         } else {
             match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
@@ -181,18 +188,84 @@ fn write_clipboard() {
     }
 }
 
-fn send_key_input(c: u16) {
+fn control_key(pressed:bool,lmap: &mut Vec<bool>) {
+    if lmap[0xA2] {
+        unsafe {
+            // let mut kbd = KEYBDINPUT::default();
+            // let kl = GetKeyboardLayout(0);
+            let vk = VIRTUAL_KEY(162);
+            // kbd.wVk = vk;
+            // kbd.wScan = MapVirtualKeyA(vk.0 as u32, MAPVK_VK_TO_VSC as u32) as u16;
+            // kbd.dwFlags = KEYBD_EVENT_FLAGS(0);
+            // kbd.time = 0;
+            // kbd.dwExtraInfo = GetMessageExtraInfo().0 as usize;
+            // let mut input = INPUT::default();
+            // input.r#type = INPUT_KEYBOARD;
+            // input.Anonymous.ki = kbd;
+            let input = keyinput_generator(pressed,vk);
+            let result = SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+        }
+    }
+}
+
+fn shift_key(pressed: bool) -> INPUT {
+    keyinput_generator(pressed,VIRTUAL_KEY(160))
+}
+fn keyinput_generator(pressed:bool,vk:VIRTUAL_KEY)->INPUT{
     unsafe {
         let mut kbd = KEYBDINPUT::default();
-        kbd.wVk = VIRTUAL_KEY(0);
-        kbd.wScan = c;
-        kbd.dwFlags = KEYEVENTF_UNICODE;
+        let vk = vk;
+        kbd.wVk = vk;
+        kbd.wScan = MapVirtualKeyA(vk.0 as u32, MAPVK_VK_TO_VSC as u32) as u16;
+        kbd.dwFlags = if pressed {
+            KEYBD_EVENT_FLAGS(0)
+        } else {
+            KEYEVENTF_KEYUP
+        };
         kbd.time = 0;
         kbd.dwExtraInfo = GetMessageExtraInfo().0 as usize;
         let mut input = INPUT::default();
         input.r#type = INPUT_KEYBOARD;
         input.Anonymous.ki = kbd;
-        let result = SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+        input
+    }
+}
+
+fn send_key_input(c: u16, lmap: &mut Vec<bool>) {
+    unsafe {
+        let mut kbd = KEYBDINPUT::default();
+        let mut input_list = Vec::new();
+        let kl = GetKeyboardLayout(0);
+        let vk = VIRTUAL_KEY(VkKeyScanExA(CHAR(c as u8), kl) as u16);
+        if c < 0x7f {
+            if vk.0 & 0x100 == 0x100 {
+                input_list.push(shift_key(true));
+            }
+            println!(
+                "shift key: {} ctrl key: {}",
+                (vk.0) & 0x100 == 0x100,
+                (vk.0) & 0x200 == 0x200
+            );
+            kbd.wVk = VIRTUAL_KEY(vk.0&0xff);
+            kbd.wScan = MapVirtualKeyA(kbd.wVk.0 as u32, MAPVK_VK_TO_VSC as u32) as u16;
+            kbd.dwFlags = KEYEVENTF_SCANCODE; //KEYBD_EVENT_FLAGS(0);
+        } else {
+            kbd.wVk = VIRTUAL_KEY(0);
+            kbd.wScan = c;
+            kbd.dwFlags = KEYEVENTF_UNICODE;
+        }
+        kbd.time = 0;
+        kbd.dwExtraInfo = GetMessageExtraInfo().0 as usize;
+        let mut input = INPUT::default();
+        input.r#type = INPUT_KEYBOARD;
+        input.Anonymous.ki = kbd;
+        input_list.push(input);
+        if vk.0 & 0x100 == 0x100 {
+            input_list.push(shift_key(false));
+        }
+        control_key(false,lmap);
+        let result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
+        control_key(true,lmap);
     }
 }
 
