@@ -12,8 +12,7 @@ use windows::{
     },
 };
 
-
-#[derive(Debug,Clone,PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum InputMode {
     Clipboard,
     DirectKeyInput,
@@ -184,20 +183,16 @@ fn write_clipboard() {
 
 fn send_key_input(c: u16) {
     unsafe {
-        let mut input_list = Vec::new();
         let mut kbd = KEYBDINPUT::default();
-        for i in 0..1 {
-            kbd.wVk = VIRTUAL_KEY(0);
-            kbd.wScan = c;
-            kbd.dwFlags = KEYEVENTF_UNICODE;
-            kbd.time = 0;
-            kbd.dwExtraInfo = GetMessageExtraInfo().0 as usize;
-            let mut input = INPUT::default();
-            input.r#type = INPUT_KEYBOARD;
-            input.Anonymous.ki = kbd;
-            input_list.push(input);
-        }
-        let result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
+        kbd.wVk = VIRTUAL_KEY(0);
+        kbd.wScan = c;
+        kbd.dwFlags = KEYEVENTF_UNICODE;
+        kbd.time = 0;
+        kbd.dwExtraInfo = GetMessageExtraInfo().0 as usize;
+        let mut input = INPUT::default();
+        input.r#type = INPUT_KEYBOARD;
+        input.Anonymous.ki = kbd;
+        let result = SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
     }
 }
 
