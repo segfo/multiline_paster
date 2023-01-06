@@ -7,6 +7,13 @@
 
 [使い方はこっち（動画説明あり）](https://qiita.com/segfo/items/7c92c9401dd1ce5ad02f)
 
+# インストールの方法
+## Rustがインストールされている場合
+`cargo install https://github.com/segfo/multiline_paster`
+
+## Rustがインストールされてない場合
+[リリース画面](https://github.com/segfo/multiline_paster/releases)から好きなものを持っていくが良い。
+
 # 動作モードについて
 動作モードは2種類あります。
 1. DirectInputモード
