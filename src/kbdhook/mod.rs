@@ -1,4 +1,5 @@
 use once_cell::unsync::*;
+use std::f32::consts::E;
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::time::Duration;
@@ -13,20 +14,50 @@ use windows::Win32::{
     UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InputMode {
     Clipboard,
     DirectKeyInput,
 }
 
 static mut hook: HHOOK = HHOOK(0);
-
 static mut map: Lazy<RwLock<Vec<bool>>> = Lazy::new(|| RwLock::new(vec![false; 256]));
 static mut clipboard: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(VecDeque::new()));
-static mut g_mode: Lazy<Mutex<InputMode>> = Lazy::new(|| Mutex::new(InputMode::DirectKeyInput));
+static mut g_mode: Lazy<Mutex<RunMode>> = Lazy::new(|| Mutex::new(RunMode::default()));
+
+#[derive(Debug, PartialEq)]
+pub struct RunMode {
+    input_mode: InputMode,
+    burst_mode: bool,
+}
+impl Default for RunMode {
+    fn default() -> Self {
+        RunMode {
+            input_mode: InputMode::DirectKeyInput,
+            burst_mode: false,
+        }
+    }
+}
+impl RunMode {
+    pub fn new() -> Self {
+        RunMode::default()
+    }
+    pub fn set_burst_mode(&mut self, enable: bool) {
+        self.burst_mode = enable;
+    }
+    pub fn set_input_mode(&mut self, input_mode: InputMode) {
+        self.input_mode = input_mode;
+    }
+    pub fn is_burst_mode(&self) -> bool {
+        self.burst_mode
+    }
+    pub fn get_input_mode(&self) -> InputMode {
+        self.input_mode
+    }
+}
 
 // クリップボード挿入モードか、DirectInputモードで動作するか選択できるようにする。
-pub fn set_mode(mode: InputMode) {
+pub fn set_mode(mode: RunMode) {
     unsafe {
         let mut locked_gmode = g_mode.lock().unwrap();
         *locked_gmode = mode;
@@ -154,10 +185,15 @@ async fn write_clipboard() {
             (VK_LCONTROL, virtual_key_to_scancode(VK_CONTROL)),
             (VK_TAB, virtual_key_to_scancode(VK_TAB)),
         ];
-        let len = cb.len();
-        for _i in 0..len {
+        let is_burst_mode = g_mode.lock().unwrap().is_burst_mode();
+        if is_burst_mode {
+            let len = cb.len();
+            for _i in 0..len {
+                paste(&mut cb);
+                send_next_key(&next_key);
+            }
+        } else {
             paste(&mut cb);
-            send_next_key(&next_key);
         }
     }
 }
@@ -221,8 +257,8 @@ unsafe fn paste(cb: &mut VecDeque<String>) {
         locked_data as *mut u8,
         strdata_len + 2,
     );
-    let mode = g_mode.lock().unwrap();
-    if *mode == InputMode::DirectKeyInput {
+    let input_mode = g_mode.lock().unwrap().get_input_mode();
+    if input_mode == InputMode::DirectKeyInput {
         show_operation_message("ペースト");
         let get_key_state = |vk: usize| -> bool {
             let lmap = &mut map.read().unwrap();
