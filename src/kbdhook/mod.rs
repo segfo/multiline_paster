@@ -6,12 +6,10 @@ use std::{
     sync::{Mutex, RwLock},
 };
 
-use windows::{
-    Win32::{
-        Foundation::*,
-        System::{DataExchange::*, Memory::*, SystemServices::*, WindowsProgramming::*},
-        UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
-    },
+use windows::Win32::{
+    Foundation::*,
+    System::{DataExchange::*, Memory::*, SystemServices::*, WindowsProgramming::*},
+    UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,7 +51,6 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
                     // VK_CONTROL=0xA2
                     // C=0x43
                     // V=0x76
-                    println!("judge_combo_key");
                     judge_combo_key(&lmap);
                 } else {
                     println!("[general key down] ncode={ncode} stroke={stroke_msg:?}");
@@ -124,7 +121,6 @@ impl Drop for Clipboard {
 
 async fn write_clipboard() {
     let mutex = unsafe { thread_mutex.lock().unwrap() };
-    println!("write_clipboard");
     unsafe {
         // クリップボードを開く
         let mut cb = clipboard.lock().unwrap();
@@ -184,9 +180,21 @@ async fn write_clipboard() {
             } else {
                 println!("アクティブウィンドウに対するフォーカスが失われています。");
             }
+            let get_key_state=|vk:usize|->bool{
+                let lmap = &mut map.read().unwrap();
+                lmap[vk]
+            };
+            // 現在のキーボードの状況（KeyboardLLHookから取得した状況）に合わせて制御キーの解除と設定を行う。
+            // その後に、ペースト対象のデータを送る
+            // さらに、現在のキーボードの状況に合わせて今度は制御キーを復旧させる。
+            let mut input_list = Vec::new();
+            if get_key_state(0xA2){input_list.push(control_key(false));}
+            let _result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
             for c in data {
                 send_key_input(c as u16);
             }
+            if get_key_state(0xA2){input_list.push(control_key(true));}
+            let _result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
         } else {
             match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
                 Ok(_handle) => {
@@ -238,17 +246,10 @@ fn send_key_input(c: u16) {
         let mut kbd = KEYBDINPUT::default();
         let mut input_list = Vec::new();
         let kl = GetKeyboardLayout(0);
+        // input_list.push(control_key(true));
+        // input_list.push(control_key(false));
         let vk = VIRTUAL_KEY(VkKeyScanExA(CHAR(c as u8), kl) as u16);
-        input_list.push(control_key(false));
         if c < 0x7f {
-            if vk.0 & 0x100 == 0x100 {
-                input_list.push(shift_key(true));
-            }
-            println!(
-                "shift key: {} ctrl key: {}",
-                (vk.0) & 0x100 == 0x100,
-                (vk.0) & 0x200 == 0x200
-            );
             kbd.wVk = VIRTUAL_KEY(vk.0 & 0xff);
             kbd.wScan = MapVirtualKeyA(kbd.wVk.0 as u32, MAPVK_VK_TO_VSC as u32) as u16;
             kbd.dwFlags = KEYEVENTF_SCANCODE; //KEYBD_EVENT_FLAGS(0);
@@ -262,11 +263,14 @@ fn send_key_input(c: u16) {
         let mut input = INPUT::default();
         input.r#type = INPUT_KEYBOARD;
         input.Anonymous.ki = kbd;
+        if vk.0 & 0x100 == 0x100 {
+            input_list.push(shift_key(true));
+        }
         input_list.push(input);
         if vk.0 & 0x100 == 0x100 {
             input_list.push(shift_key(false));
         }
-        input_list.push(control_key(true));
+        // input_list.push(control_key(true));
         let result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
     }
 }
