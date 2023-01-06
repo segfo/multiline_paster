@@ -86,7 +86,7 @@ fn judge_combo_key()->bool {
             // 0x56: V
             println!("paste!");
             // 基本的に重たい操作なので非同期で行う
-            // 意訳：さっさとフックチェーンにメッセージを登録しないとキーボードがハングする。
+            // 意訳：さっさとフックプロシージャから復帰しないとキーボードがハングする。
             task::spawn(write_clipboard());
             return true;
         }
