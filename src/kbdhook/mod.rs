@@ -134,100 +134,145 @@ fn show_operation_message<T: Into<String>>(operation: T) {
 async fn write_clipboard() {
     let mutex = unsafe { thread_mutex.lock().unwrap() };
     unsafe {
-        // クリップボードを開く
-        let mut cb = clipboard.lock().unwrap();
         // DropTraitを有効にするために変数に束縛する
         // 束縛先の変数は未使用だが、最適化によってOpenClipboardが実行されなくなるので変数束縛は必ず行う。
         let iclip = Clipboard::open();
+        // クリップボードを開く
+        let mut cb = clipboard.lock().unwrap();
+
         if cb.len() == 0 {
-            let hText = GetClipboardData(CF_UNICODETEXT.0);
-            match hText {
-                Err(_) => {
-                    println!("クリップボードにデータないよｗ");
-                    return;
-                }
-                Ok(hText) => {
-                    // クリップボードにデータがあったらロックする
-                    let pText = GlobalLock(hText.0);
-                    // 今クリップボードにある内容をコピーする（改行で分割される）
-                    // 後でここの挙動を変えても良さそう。
-                    if cb.len() == 0 {
-                        let text = u16_ptr_to_string(pText as *const _).into_string().unwrap();
-                        for line in text.lines() {
-                            if line.len() != 0 {
-                                cb.push_front(line.to_owned());
-                            }
-                        }
-                    }
-                    GlobalUnlock(hText.0);
-                }
+            if let None = load_data_from_clipboard(&mut cb) {
+                println!("クリップボードにデータないよｗ");
+                return;
             }
         }
-        // コピーしたデータを1行ずつ貼り付ける。
-        // コピーしたデータが全部なくなるまでこっちの挙動になる。
-        // 嫌なら自分で直して。オープンソースだし。
         EmptyClipboard();
-        let data = OsString::from(cb.pop_back().unwrap())
-            .encode_wide()
-            .collect::<Vec<u16>>();
-        let strdata_len = data.len() * 2;
-        let data_ptr = data.as_ptr();
-        let gdata = GlobalAlloc(GHND | GLOBAL_ALLOC_FLAGS(GMEM_SHARE), strdata_len + 2);
-        let locked_data = GlobalLock(gdata);
-        std::ptr::copy_nonoverlapping(
-            data_ptr as *const u8,
-            locked_data as *mut u8,
-            strdata_len + 2,
-        );
-        let mode = g_mode.lock().unwrap();
-        if *mode == InputMode::DirectKeyInput {
-            show_operation_message("ペースト");
-            let get_key_state = |vk: usize| -> bool {
-                let lmap = &mut map.read().unwrap();
-                lmap[vk]
-            };
-            // 現在のキーボードの状況（KeyboardLLHookから取得した状況）に合わせて制御キーの解除と設定を行う。
-            // その後に、ペースト対象のデータを送る
-            // さらに、現在のキーボードの状況に合わせて今度は制御キーを復旧させる。
-            let mut input_list = Vec::new();
-            for c in data {
-                send_key_input(c as u16);
-            }
-            if get_key_state(162) {
-                input_list.push(control_key(true));
-            } else {
-                input_list.push(control_key(false));
-            }
-            let _result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
-        } else {
-            match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
-                Ok(_handle) => {
-                    println!("set clipboard success.");
-                }
-                Err(e) => {
-                    println!("SetClipboardData failed. {:?}", e);
-                }
-            }
+        // バーストモード
+        // 将来的にはTAB以外でもできるようにする。
+        // 今は仮の姿
+        let next_key = vec![
+            (VK_LCONTROL, virtual_key_to_scancode(VK_CONTROL)),
+            (VK_TAB, virtual_key_to_scancode(VK_TAB)),
+        ];
+        let len = cb.len();
+        for _i in 0..len {
+            paste(&mut cb);
+            send_next_key(&next_key);
         }
-        // 終わったらアンロックしてからメモリを開放する
-        GlobalUnlock(gdata);
-        GlobalFree(gdata);
     }
 }
 
+unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
+    let hText = GetClipboardData(CF_UNICODETEXT.0);
+    match hText {
+        Err(_) => None,
+        Ok(hText) => {
+            // クリップボードにデータがあったらロックする
+            let pText = GlobalLock(hText.0);
+            // 今クリップボードにある内容をコピーする（改行で分割される）
+            // 後でここの挙動を変えても良さそう。
+            if cb.len() == 0 {
+                let text = u16_ptr_to_string(pText as *const _).into_string().unwrap();
+                for line in text.lines() {
+                    if line.len() != 0 {
+                        cb.push_front(line.to_owned());
+                    }
+                }
+            }
+            GlobalUnlock(hText.0);
+            Some(())
+        }
+    }
+}
+
+fn key_input_generator(vk: VIRTUAL_KEY, char_code: u16) -> Vec<INPUT> {
+    if char_code < 0x7f {
+        let vk = VIRTUAL_KEY(vk.0 & 0xff);
+        vec![
+            keyinput_generator_ascii(true, vk),
+            keyinput_generator_ascii(false, vk),
+        ]
+    } else {
+        vec![
+            key_input_generator_unicode(true, char_code),
+            key_input_generator_unicode(false, char_code),
+        ]
+    }
+}
+// 使う側視点での「次のキー」
+// 入力先UI的に次に進むキーを投げるためのもの。
+fn send_next_key(nextkey: &Vec<(VIRTUAL_KEY, u16)>) {
+    for (vk, char_code) in nextkey {
+        let input = key_input_generator(*vk, *char_code);
+        let _result = unsafe { SendInput(&input, std::mem::size_of::<INPUT>() as i32) };
+    }
+}
+
+unsafe fn paste(cb: &mut VecDeque<String>) {
+    let data = OsString::from(cb.pop_back().unwrap())
+        .encode_wide()
+        .collect::<Vec<u16>>();
+    let strdata_len = data.len() * 2;
+    let data_ptr = data.as_ptr();
+    let gdata = GlobalAlloc(GHND | GLOBAL_ALLOC_FLAGS(GMEM_SHARE), strdata_len + 2);
+    let locked_data = GlobalLock(gdata);
+    std::ptr::copy_nonoverlapping(
+        data_ptr as *const u8,
+        locked_data as *mut u8,
+        strdata_len + 2,
+    );
+    let mode = g_mode.lock().unwrap();
+    if *mode == InputMode::DirectKeyInput {
+        show_operation_message("ペースト");
+        let get_key_state = |vk: usize| -> bool {
+            let lmap = &mut map.read().unwrap();
+            lmap[vk]
+        };
+        // 現在のキーボードの状況（KeyboardLLHookから取得した状況）に合わせて制御キーの解除と設定を行う。
+        // その後に、ペースト対象のデータを送る
+        // さらに、現在のキーボードの状況に合わせて今度は制御キーを復旧させる。
+        let mut input_list = Vec::new();
+        for c in data {
+            send_key_input(c as u16);
+        }
+        if get_key_state(162) {
+            input_list.push(control_key(true));
+        } else {
+            input_list.push(control_key(false));
+        }
+        let _result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
+    } else {
+        match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
+            Ok(_handle) => {
+                println!("set clipboard success.");
+            }
+            Err(e) => {
+                println!("SetClipboardData failed. {:?}", e);
+            }
+        }
+    }
+    // 終わったらアンロックしてからメモリを開放する
+    GlobalUnlock(gdata);
+    GlobalFree(gdata);
+}
+
 fn control_key(pressed: bool) -> INPUT {
-    keyinput_generator(pressed, VIRTUAL_KEY(162))
+    keyinput_generator_ascii(pressed, VIRTUAL_KEY(162))
 }
 
 fn shift_key(pressed: bool) -> INPUT {
-    keyinput_generator(pressed, VIRTUAL_KEY(160))
+    keyinput_generator_ascii(pressed, VIRTUAL_KEY(160))
 }
-fn keyinput_generator(pressed: bool, vk: VIRTUAL_KEY) -> INPUT {
+
+fn virtual_key_to_scancode(vk: VIRTUAL_KEY) -> u16 {
+    unsafe { MapVirtualKeyA(vk.0 as u32, MAPVK_VK_TO_VSC as u32) as u16 }
+}
+fn keyinput_generator_ascii(pressed: bool, vk: VIRTUAL_KEY) -> INPUT {
     unsafe {
         let vk = VIRTUAL_KEY(vk.0 & 0xff);
         keyinput_generator_detail(
             vk,
-            MapVirtualKeyA(vk.0 as u32, MAPVK_VK_TO_VSC as u32) as u16,
+            virtual_key_to_scancode(vk),
             if pressed {
                 KEYEVENTF_SCANCODE
             } else {
@@ -238,17 +283,15 @@ fn keyinput_generator(pressed: bool, vk: VIRTUAL_KEY) -> INPUT {
 }
 
 fn key_input_generator_unicode(pressed: bool, scan: u16) -> INPUT {
-    unsafe {
-        keyinput_generator_detail(
-            VIRTUAL_KEY(0),
-            scan,
-            if pressed {
-                KEYEVENTF_UNICODE
-            } else {
-                KEYBD_EVENT_FLAGS(KEYEVENTF_KEYUP.0 | KEYEVENTF_UNICODE.0)
-            },
-        )
-    }
+    keyinput_generator_detail(
+        VIRTUAL_KEY(0),
+        scan,
+        if pressed {
+            KEYEVENTF_UNICODE
+        } else {
+            KEYBD_EVENT_FLAGS(KEYEVENTF_KEYUP.0 | KEYEVENTF_UNICODE.0)
+        },
+    )
 }
 
 fn keyinput_generator_detail(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
@@ -280,13 +323,14 @@ fn send_key_input(c: u16) {
         if vk.0 & 0x100 == 0x100 {
             input_list.push(shift_key(true));
         }
-        if c < 0x7f {
-            input_list.push(keyinput_generator(true, vk));
-            input_list.push(keyinput_generator(false, vk));
-        } else {
-            input_list.push(key_input_generator_unicode(true, c));
-            input_list.push(key_input_generator_unicode(false, c));
-        }
+        input_list.append(&mut key_input_generator(vk, c));
+        // if c < 0x7f {
+        //     input_list.push(keyinput_generator(true, vk));
+        //     input_list.push(keyinput_generator(false, vk));
+        // } else {
+        //     input_list.push(key_input_generator_unicode(true, c));
+        //     input_list.push(key_input_generator_unicode(false, c));
+        // }
         if vk.0 & 0x100 == 0x100 {
             input_list.push(shift_key(false));
         }
