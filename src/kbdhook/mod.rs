@@ -40,16 +40,18 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
         let stroke_msg = unsafe { *(lparam.0 as *const KBDLLHOOKSTRUCT) };
         match keystate {
             WM_KEYDOWN => {
-                println!("[general key down] ncode={ncode} stroke={stroke_msg:?}");
                 {
                     let lmap = unsafe { &mut map.write().unwrap() };
                     lmap[stroke_msg.vkCode as usize] = true;
                 }
                 // キーボードイベントで無いもの（ユーザ操作）に限定してペースト操作を行う
                 if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0 {
+                    println!("[general key down] ncode={ncode} stroke={stroke_msg:?}");
                     let combokey = judge_combo_key();
                     // コンボキーであった場合は、フックチェーンに流さない。（意図しないキー入力の防止）
-                    if combokey {return LRESULT(0);}
+                    if combokey {
+                        return LRESULT(0);
+                    }
                 }
             }
             WM_SYSKEYDOWN => {
@@ -58,7 +60,9 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
             }
             WM_KEYUP => {
                 let lmap = unsafe { &mut map.write().unwrap() };
-                println!("[general key up] ncode={ncode} stroke={stroke_msg:?}");
+                if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0 {
+                    println!("[general key up] ncode={ncode} stroke={stroke_msg:?}");
+                }
                 lmap[stroke_msg.vkCode as usize] = false;
             }
             WM_SYSKEYUP => {
@@ -72,7 +76,7 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
 }
 
 static mut thread_mutex: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(0));
-fn judge_combo_key()->bool {
+fn judge_combo_key() -> bool {
     let lmap = unsafe { &mut map.read().unwrap() };
     // 0xA2:CTRL
     if lmap[0xA2] == true {
@@ -170,7 +174,7 @@ async fn write_clipboard() {
             let active_window = GetForegroundWindow();
             if active_window.0 != 0 {
                 println!(
-                    "ウィンドウ {} に対してペーストが行われました。",
+                    "ウィンドウ 「{}」 に対してペーストが行われました。",
                     get_window_text(active_window)
                 );
             } else {
@@ -189,7 +193,7 @@ async fn write_clipboard() {
             }
             if get_key_state(162) {
                 input_list.push(control_key(true));
-            }else{
+            } else {
                 input_list.push(control_key(false));
             }
             let _result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
@@ -287,9 +291,11 @@ fn send_key_input(c: u16) {
 
 fn get_window_text(hwnd: HWND) -> String {
     unsafe {
-        let len = GetWindowTextLengthW(hwnd) as usize;
+        // GetWindowTextLengthW + GetWindowTextWは別プロセスへの取得を意図したものではないとの記述がMSDNにあるので
+        // SendMessageWで取得することにする。
+        let len = (SendMessageW(hwnd, WM_GETTEXTLENGTH, WPARAM(0), LPARAM(0)).0 as usize + 1) * 2;
         let mut buf = vec![0u16; len];
-        GetWindowTextW(hwnd, &mut buf);
+        SendMessageW(hwnd,WM_GETTEXT, WPARAM(len/2),LPARAM(buf.as_mut_ptr() as isize));
         OsString::from_wide(&buf)
             .to_os_string()
             .into_string()
