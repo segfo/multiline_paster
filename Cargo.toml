@@ -25,3 +25,9 @@ features = [
   "Win32_UI_TextServices",
 ]
 version = "0.43.0"
+
+[profile.release]
+strip = true
+opt-level=3
+lto=true
+codegen-units = 1
