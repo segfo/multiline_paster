@@ -3,15 +3,22 @@ use windows::{Win32::Foundation::*, Win32::UI::WindowsAndMessaging::*};
 mod kbdhook;
 use clap::{Parser, *};
 use kbdhook::*;
+
+#[clap(group(
+    ArgGroup::new("run_mode")
+        .required(false)
+        .args(&["clipboard", "burst"]),
+))]
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct CommandLineArgs {
     /// 動作モードがクリップボード経由でペーストされます（デフォルト：キーボードエミュレーションでのペースト）
+    /// 本モードはバーストモードと排他です。
     #[arg(long, default_value_t = false)]
     clipboard: bool,
     /// バーストモード（フォームに対する連続入力モード）にするか選択できます。
-    #[arg(long,default_value_t=false)]
-    burst:bool
+    #[arg(long, default_value_t = false)]
+    burst: bool,
 }
 
 #[async_std::main]
@@ -23,7 +30,7 @@ async fn main() {
     if args.clipboard {
         run_mode.set_input_mode(InputMode::Clipboard)
     }
-    if args.burst{
+    if args.burst {
         run_mode.set_burst_mode(true)
     }
     set_mode(run_mode);

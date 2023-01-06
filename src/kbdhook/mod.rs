@@ -14,6 +14,12 @@ use windows::Win32::{
     UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
+// キーボード入力の発行元を簡易的に識別するためのメタデータ
+// 値については特に意味はない。ただし、0以外であること（ハードウェアキーボードは0のため）
+enum KeyExtraInfo {
+    EmulateKeyData = 12345,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InputMode {
     Clipboard,
@@ -173,7 +179,7 @@ async fn write_clipboard() {
 
         if cb.len() == 0 {
             if let None = load_data_from_clipboard(&mut cb) {
-                println!("クリップボードにデータないよｗ");
+                println!("クリップボードにデータがありません。");
                 return;
             }
         }
@@ -360,13 +366,6 @@ fn send_key_input(c: u16) {
             input_list.push(shift_key(true));
         }
         input_list.append(&mut key_input_generator(vk, c));
-        // if c < 0x7f {
-        //     input_list.push(keyinput_generator(true, vk));
-        //     input_list.push(keyinput_generator(false, vk));
-        // } else {
-        //     input_list.push(key_input_generator_unicode(true, c));
-        //     input_list.push(key_input_generator_unicode(false, c));
-        // }
         if vk.0 & 0x100 == 0x100 {
             input_list.push(shift_key(false));
         }
