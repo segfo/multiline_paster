@@ -83,12 +83,10 @@ fn judge_combo_key() -> bool {
         if lmap[0x43] || lmap[0x58] {
             // 0x43:C
             // 0x58:X
-            println!("copy");
             reset_clipboard();
             return true;
         } else if lmap[0x56] {
             // 0x56: V
-            println!("paste!");
             // 基本的に重たい操作なので非同期で行う
             // 意訳：さっさとフックプロシージャから復帰しないとキーボードがハングする。
             task::spawn(write_clipboard());
@@ -99,6 +97,7 @@ fn judge_combo_key() -> bool {
 }
 
 fn reset_clipboard() {
+    show_operation_message("コピー");
     let mut cb = unsafe { clipboard.lock().unwrap() };
     cb.clear();
 }
@@ -116,6 +115,19 @@ impl Drop for Clipboard {
         unsafe {
             CloseClipboard();
         }
+    }
+}
+
+fn show_operation_message<T: Into<String>>(operation: T) {
+    let active_window = unsafe { GetForegroundWindow() };
+    if active_window.0 != 0 {
+        println!(
+            "ウィンドウ 「{}」 に対して{}が行われました。",
+            get_window_text(active_window),
+            operation.into()
+        );
+    } else {
+        println!("アクティブウィンドウに対するフォーカスが失われています。");
     }
 }
 
@@ -139,10 +151,8 @@ async fn write_clipboard() {
                     let pText = GlobalLock(hText.0);
                     // 今クリップボードにある内容をコピーする（改行で分割される）
                     // 後でここの挙動を変えても良さそう。
-
                     if cb.len() == 0 {
                         let text = u16_ptr_to_string(pText as *const _).into_string().unwrap();
-                        // println!("copy: {text}");
                         for line in text.lines() {
                             if line.len() != 0 {
                                 cb.push_front(line.to_owned());
@@ -171,15 +181,7 @@ async fn write_clipboard() {
         );
         let mode = g_mode.lock().unwrap();
         if *mode == InputMode::DirectKeyInput {
-            let active_window = GetForegroundWindow();
-            if active_window.0 != 0 {
-                println!(
-                    "ウィンドウ 「{}」 に対してペーストが行われました。",
-                    get_window_text(active_window)
-                );
-            } else {
-                println!("アクティブウィンドウに対するフォーカスが失われています。");
-            }
+            show_operation_message("ペースト");
             let get_key_state = |vk: usize| -> bool {
                 let lmap = &mut map.read().unwrap();
                 lmap[vk]
@@ -256,7 +258,11 @@ fn keyinput_generator_detail(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAG
     kbd.wScan = scan;
     kbd.dwFlags = flags;
     kbd.time = 0;
-    kbd.dwExtraInfo = 12345; //unsafe { GetMessageExtraInfo().0 as usize };
+    // ExtraInfoは特に意味のある値ではない。
+    // このアプリから生成されたことを主張するだけの値。（物理キーの入力ではないという印）
+    // もちろん他のアプリがこの値を設定してたら区別はつかないだろう。
+    // ただし、物理キーボード入力は常に0であるのでそれとかぶらなければ正直何でも良いので12345という値にしている。
+    kbd.dwExtraInfo = 12345;
 
     let mut input = INPUT::default();
     input.r#type = INPUT_KEYBOARD;
@@ -295,7 +301,12 @@ fn get_window_text(hwnd: HWND) -> String {
         // SendMessageWで取得することにする。
         let len = (SendMessageW(hwnd, WM_GETTEXTLENGTH, WPARAM(0), LPARAM(0)).0 as usize + 1) * 2;
         let mut buf = vec![0u16; len];
-        SendMessageW(hwnd,WM_GETTEXT, WPARAM(len/2),LPARAM(buf.as_mut_ptr() as isize));
+        SendMessageW(
+            hwnd,
+            WM_GETTEXT,
+            WPARAM(len / 2),
+            LPARAM(buf.as_mut_ptr() as isize),
+        );
         OsString::from_wide(&buf)
             .to_os_string()
             .into_string()
