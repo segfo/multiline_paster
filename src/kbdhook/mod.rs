@@ -218,6 +218,7 @@ fn shift_key(pressed: bool) -> INPUT {
 }
 fn keyinput_generator(pressed: bool, vk: VIRTUAL_KEY) -> INPUT {
     unsafe {
+        let vk = VIRTUAL_KEY(vk.0 & 0xff);
         keyinput_generator_detail(
             vk,
             MapVirtualKeyA(vk.0 as u32, MAPVK_VK_TO_VSC as u32) as u16,
