@@ -205,23 +205,23 @@ async fn write_clipboard() {
 }
 
 unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
-    let hText = GetClipboardData(CF_UNICODETEXT.0);
-    match hText {
+    let h_text = GetClipboardData(CF_UNICODETEXT.0);
+    match h_text {
         Err(_) => None,
-        Ok(hText) => {
+        Ok(h_text) => {
             // クリップボードにデータがあったらロックする
-            let pText = GlobalLock(hText.0);
+            let p_text = GlobalLock(h_text.0);
             // 今クリップボードにある内容をコピーする（改行で分割される）
             // 後でここの挙動を変えても良さそう。
             if cb.len() == 0 {
-                let text = u16_ptr_to_string(pText as *const _).into_string().unwrap();
+                let text = u16_ptr_to_string(p_text as *const _).into_string().unwrap();
                 for line in text.lines() {
                     if line.len() != 0 {
                         cb.push_front(line.to_owned());
                     }
                 }
             }
-            GlobalUnlock(hText.0);
+            GlobalUnlock(h_text.0);
             Some(())
         }
     }
