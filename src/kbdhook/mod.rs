@@ -219,6 +219,8 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
                 for line in text.lines() {
                     if line.len() != 0 {
                         cb.push_front(line.to_owned());
+                    }else{
+                        cb.push_front("".to_owned());
                     }
                 }
             }
