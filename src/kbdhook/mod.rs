@@ -29,12 +29,14 @@ static mut g_mode: Lazy<Mutex<RunMode>> = Lazy::new(|| Mutex::new(RunMode::defau
 pub struct RunMode {
     input_mode: InputMode,
     burst_mode: bool,
+    pub next_key: Vec<char>
 }
 impl Default for RunMode {
     fn default() -> Self {
         RunMode {
             input_mode: InputMode::DirectKeyInput,
             burst_mode: false,
+            next_key: Vec::new()
         }
     }
 }
@@ -53,6 +55,9 @@ impl RunMode {
     }
     pub fn get_input_mode(&self) -> InputMode {
         self.input_mode
+    }
+    pub fn get_next_key(&self) -> Vec<char>{
+        self.next_key.clone()
     }
 }
 
@@ -181,20 +186,27 @@ async fn write_clipboard() {
         // バーストモード
         // 将来的にはTAB以外でもできるようにする。
         // 今は仮の姿
-        let next_key = [VK_LCONTROL, VK_TAB];
-        let mut kbd = Keyboard::new();
-        for key in next_key {
+        let (is_burst_mode,next_key)={
+            let mode = g_mode.lock().unwrap();
+            (mode.is_burst_mode(),mode.get_next_key())
+        };
+        
+        if is_burst_mode {
+            let mut kbd = Keyboard::new();
+            let len = cb.len();
             kbd.append_input_chain(
                 KeycodeBuilder::default()
-                    .vk(key.0)
-                    .scan_code(virtual_key_to_scancode(key))
+                    .vk(VK_LCONTROL.0)
+                    .scan_code(virtual_key_to_scancode(VK_LCONTROL))
                     .build(),
             );
-        }
-
-        let is_burst_mode = g_mode.lock().unwrap().is_burst_mode();
-        if is_burst_mode {
-            let len = cb.len();
+            // let next_key = &mode.next_key;
+            for key in next_key {
+                KeycodeBuilder::default()
+                    .char_build(key)
+                    .iter()
+                    .for_each(|keycode| kbd.append_input_chain(keycode.clone()));
+            }
             for _i in 0..len {
                 paste(&mut cb);
                 kbd.send_key()
@@ -219,7 +231,7 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
                 for line in text.lines() {
                     if line.len() != 0 {
                         cb.push_front(line.to_owned());
-                    }else{
+                    } else {
                         cb.push_front("".to_owned());
                     }
                 }
