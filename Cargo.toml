@@ -9,6 +9,9 @@ version = "1.0.0"
 clap = {version = "4.0.32", features = ["derive", "cargo"]}
 once_cell = "1.16.0"
 send_input = {path = "./lib_keyboard_input"}
+serde = { version = "^1.0.101", features = ["derive"] }
+serde_derive = "1.0.152"
+toml = "0.5.10"
 [dependencies.async-std]
 features = ["attributes", "std"]
 version = "1.12.0"

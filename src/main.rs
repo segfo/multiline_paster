@@ -1,3 +1,5 @@
+use std::{fs::OpenOptions, io::Write};
+
 use windows::{Win32::Foundation::*, Win32::UI::WindowsAndMessaging::*};
 
 mod kbdhook;
@@ -20,20 +22,60 @@ struct CommandLineArgs {
     #[arg(long, default_value_t = false)]
     burst: bool,
 }
+impl CommandLineArgs {
+    fn configure(&self, mut run_mode: RunMode) -> RunMode {
+        run_mode.set_burst_mode(self.burst);
+        run_mode.set_input_mode(if self.clipboard {
+            InputMode::Clipboard
+        } else {
+            InputMode::DirectKeyInput
+        });
+        run_mode
+    }
+}
+
+use serde_derive::{Deserialize, Serialize};
+#[derive(Debug, Serialize, Deserialize,Clone)]
+struct Config {
+    tabindex_key: Vec<char>,
+}
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            tabindex_key: vec!['\t'],
+        }
+    }
+}
+mod loadconfig;
+use loadconfig::*;
+impl Config{
+    fn load_file(path:&str)->Self{
+        let config = TomlConfigDeserializer::<Config>::from_file(path);
+        match config {
+            Ok(file)=>{
+                file
+            },
+            Err(_e)=>{
+                let conf = Config::default();
+                match OpenOptions::new().truncate(true).write(true).read(false).open(path){
+                    Ok(mut file)=>{let _r = file.write(toml::to_string(&conf).unwrap().as_bytes());}
+                    Err(_e)=>{}
+                }
+                conf
+            }
+        }
+    }
+}
 
 #[async_std::main]
 async fn main() {
     sethook();
     let mut msg = MSG::default();
     let args = CommandLineArgs::parse();
-    let mut run_mode = RunMode::default();
-    if args.clipboard {
-        run_mode.set_input_mode(InputMode::Clipboard)
-    }
-    if args.burst {
-        run_mode.set_burst_mode(true)
-    }
-    set_mode(run_mode);
+    let mut mode = args.configure(RunMode::default());
+    let config = Config::load_file("config.toml").tabindex_key;
+    mode.next_key = config;
+    set_mode(mode);
     unsafe {
         while GetMessageW(&mut msg, HWND::default(), 0, 0).into() {
             TranslateMessage(&msg);
