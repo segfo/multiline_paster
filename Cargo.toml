@@ -12,6 +12,7 @@ send_input = {path = "./lib_keyboard_input"}
 serde = { version = "^1.0.101", features = ["derive"] }
 serde_derive = "1.0.152"
 toml = "0.5.10"
+dirs = "4.0.0"
 [dependencies.async-std]
 features = ["attributes", "std"]
 version = "1.12.0"

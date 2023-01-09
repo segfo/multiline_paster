@@ -35,7 +35,7 @@ impl CommandLineArgs {
 }
 
 use serde_derive::{Deserialize, Serialize};
-#[derive(Debug, Serialize, Deserialize,Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Config {
     tabindex_key: Vec<char>,
 }
@@ -48,18 +48,41 @@ impl Default for Config {
 }
 mod loadconfig;
 use loadconfig::*;
-impl Config{
-    fn load_file(path:&str)->Self{
+impl Config {
+    // カレントディレクトリに新規作成を試みる
+    // もし新規作成できなければ、ホームディレクトリに作成する
+    fn load_file(path: &str) -> Self {
         let config = TomlConfigDeserializer::<Config>::from_file(path);
         match config {
-            Ok(file)=>{
-                file
-            },
-            Err(_e)=>{
+            Ok(file) => file,
+            Err(_e) => {
                 let conf = Config::default();
-                match OpenOptions::new().truncate(true).write(true).read(false).open(path){
-                    Ok(mut file)=>{let _r = file.write(toml::to_string(&conf).unwrap().as_bytes());}
-                    Err(_e)=>{}
+                match OpenOptions::new()
+                    .create_new(true)
+                    .truncate(true)
+                    .write(true)
+                    .read(false)
+                    .open(path)
+                {
+                    Ok(mut file) => {
+                        let _r = file.write(toml::to_string(&conf).unwrap().as_bytes());
+                    }
+                    Err(_e) => {
+                        let mut pathbuf = std::fs::canonicalize(&home_dir().unwrap()).unwrap();
+                        pathbuf.push(path);
+                        match OpenOptions::new()
+                            .truncate(true)
+                            .create_new(true)
+                            .write(true)
+                            .read(false)
+                            .open(pathbuf)
+                        {
+                            Ok(mut file) => {
+                                let _r = file.write(toml::to_string(&conf).unwrap().as_bytes());
+                            }
+                            Err(_e) => {}
+                        }
+                    }
                 }
                 conf
             }
@@ -67,6 +90,7 @@ impl Config{
     }
 }
 
+use dirs::home_dir;
 #[async_std::main]
 async fn main() {
     sethook();
