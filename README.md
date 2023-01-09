@@ -9,7 +9,17 @@
 
 # インストールの方法
 ## Rustがインストールされている場合
-`cargo install https://github.com/segfo/multiline_paster`
+推奨
+```
+cargo install --git=https://github.com/segfo/multiline_paster
+```
+
+自分でバイナリを配置したい場合
+```
+git clone --recursive https://github.com/segfo/multiline_paster/
+cd multiline_paster
+cargo build --release
+```
 
 ## Rustがインストールされてない場合
 [リリース画面](https://github.com/segfo/multiline_paster/releases)から好きなものを持っていくが良い。
