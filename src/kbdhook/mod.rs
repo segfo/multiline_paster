@@ -1,12 +1,12 @@
 use once_cell::unsync::*;
-use std::f32::consts::E;
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::time::Duration;
 use std::{
     collections::VecDeque,
     sync::{Mutex, RwLock},
 };
+
+use send_input::keyboard::windows::*;
 
 use windows::Win32::{
     Foundation::*,
@@ -187,16 +187,23 @@ async fn write_clipboard() {
         // バーストモード
         // 将来的にはTAB以外でもできるようにする。
         // 今は仮の姿
-        let next_key = vec![
-            (VK_LCONTROL, virtual_key_to_scancode(VK_CONTROL)),
-            (VK_TAB, virtual_key_to_scancode(VK_TAB)),
-        ];
+        let next_key = [VK_LCONTROL, VK_TAB];
+        let mut kbd = Keyboard::new();
+        for key in next_key {
+            kbd.append_input_chain(
+                KeycodeBuilder::default()
+                    .vk(key.0)
+                    .scan_code(virtual_key_to_scancode(key))
+                    .build(),
+            );
+        }
+
         let is_burst_mode = g_mode.lock().unwrap().is_burst_mode();
         if is_burst_mode {
             let len = cb.len();
             for _i in 0..len {
                 paste(&mut cb);
-                send_next_key(&next_key);
+                kbd.send_key()
             }
         } else {
             paste(&mut cb);
@@ -227,63 +234,58 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
     }
 }
 
-fn key_input_generator(vk: VIRTUAL_KEY, char_code: u16) -> Vec<INPUT> {
-    if char_code < 0x7f {
-        let vk = VIRTUAL_KEY(vk.0 & 0xff);
-        vec![
-            keyinput_generator_ascii(true, vk),
-            keyinput_generator_ascii(false, vk),
-        ]
-    } else {
-        vec![
-            key_input_generator_unicode(true, char_code),
-            key_input_generator_unicode(false, char_code),
-        ]
-    }
-}
-// 使う側視点での「次のキー」
-// 入力先UI的に次に進むキーを投げるためのもの。
-fn send_next_key(nextkey: &Vec<(VIRTUAL_KEY, u16)>) {
-    for (vk, char_code) in nextkey {
-        let input = key_input_generator(*vk, *char_code);
-        let _result = unsafe { SendInput(&input, std::mem::size_of::<INPUT>() as i32) };
-    }
-}
-
 unsafe fn paste(cb: &mut VecDeque<String>) {
-    let data = OsString::from(cb.pop_back().unwrap())
-        .encode_wide()
-        .collect::<Vec<u16>>();
-    let strdata_len = data.len() * 2;
-    let data_ptr = data.as_ptr();
-    let gdata = GlobalAlloc(GHND | GLOBAL_ALLOC_FLAGS(GMEM_SHARE), strdata_len + 2);
-    let locked_data = GlobalLock(gdata);
-    std::ptr::copy_nonoverlapping(
-        data_ptr as *const u8,
-        locked_data as *mut u8,
-        strdata_len + 2,
-    );
+    let s = cb.pop_back().unwrap();
     let input_mode = g_mode.lock().unwrap().get_input_mode();
+    show_operation_message("ペースト");
     if input_mode == InputMode::DirectKeyInput {
-        show_operation_message("ペースト");
-        let get_key_state = |vk: usize| -> bool {
+        let is_key_pressed = |vk: usize| -> bool {
             let lmap = &mut map.read().unwrap();
             lmap[vk]
         };
         // 現在のキーボードの状況（KeyboardLLHookから取得した状況）に合わせて制御キーの解除と設定を行う。
         // その後に、ペースト対象のデータを送る
         // さらに、現在のキーボードの状況に合わせて今度は制御キーを復旧させる。
-        let mut input_list = Vec::new();
-        for c in data {
-            send_key_input(c as u16);
+        let mut kbd = Keyboard::new();
+        // CTRLキーを一旦解除する
+        kbd.append_input_chain(
+            KeycodeBuilder::default()
+                .vk(VK_LCONTROL.0)
+                .scan_code(virtual_key_to_scancode(VK_LCONTROL))
+                .build(),
+        );
+        // ペースト対象の文字列を登録する
+        for c in s.as_str().chars() {
+            KeycodeBuilder::default()
+                .char_build(char::from_u32(c as u32).unwrap())
+                .iter()
+                .for_each(|key_code| kbd.append_input_chain(key_code.clone()));
         }
-        if get_key_state(162) {
-            input_list.push(control_key(true));
+        // CTRLキーが押されている状況をチェックしてチェーンに登録する
+        let mode = if is_key_pressed(162) {
+            KeySendMode::KeyDown
         } else {
-            input_list.push(control_key(false));
-        }
-        let _result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
+            KeySendMode::KeyUp
+        };
+        kbd.append_input_chain(
+            KeycodeBuilder::default()
+                .vk(VK_LCONTROL.0)
+                .scan_code(virtual_key_to_scancode(VK_LCONTROL))
+                .key_send_mode(mode)
+                .build(),
+        );
+        kbd.send_key();
     } else {
+        let data = OsString::from(s).encode_wide().collect::<Vec<u16>>();
+        let strdata_len = data.len() * 2;
+        let data_ptr = data.as_ptr();
+        let gdata = GlobalAlloc(GHND | GLOBAL_ALLOC_FLAGS(GMEM_SHARE), strdata_len + 2);
+        let locked_data = GlobalLock(gdata);
+        std::ptr::copy_nonoverlapping(
+            data_ptr as *const u8,
+            locked_data as *mut u8,
+            strdata_len + 2,
+        );
         match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
             Ok(_handle) => {
                 println!("set clipboard success.");
@@ -292,86 +294,14 @@ unsafe fn paste(cb: &mut VecDeque<String>) {
                 println!("SetClipboardData failed. {:?}", e);
             }
         }
+        // 終わったらアンロックしてからメモリを開放する
+        GlobalUnlock(gdata);
+        GlobalFree(gdata);
     }
-    // 終わったらアンロックしてからメモリを開放する
-    GlobalUnlock(gdata);
-    GlobalFree(gdata);
-}
-
-fn control_key(pressed: bool) -> INPUT {
-    keyinput_generator_ascii(pressed, VIRTUAL_KEY(162))
-}
-
-fn shift_key(pressed: bool) -> INPUT {
-    keyinput_generator_ascii(pressed, VIRTUAL_KEY(160))
 }
 
 fn virtual_key_to_scancode(vk: VIRTUAL_KEY) -> u16 {
     unsafe { MapVirtualKeyA(vk.0 as u32, MAPVK_VK_TO_VSC as u32) as u16 }
-}
-fn keyinput_generator_ascii(pressed: bool, vk: VIRTUAL_KEY) -> INPUT {
-    unsafe {
-        let vk = VIRTUAL_KEY(vk.0 & 0xff);
-        keyinput_generator_detail(
-            vk,
-            virtual_key_to_scancode(vk),
-            if pressed {
-                KEYEVENTF_SCANCODE
-            } else {
-                KEYBD_EVENT_FLAGS(KEYEVENTF_KEYUP.0 | KEYEVENTF_SCANCODE.0)
-            },
-        )
-    }
-}
-
-fn key_input_generator_unicode(pressed: bool, scan: u16) -> INPUT {
-    keyinput_generator_detail(
-        VIRTUAL_KEY(0),
-        scan,
-        if pressed {
-            KEYEVENTF_UNICODE
-        } else {
-            KEYBD_EVENT_FLAGS(KEYEVENTF_KEYUP.0 | KEYEVENTF_UNICODE.0)
-        },
-    )
-}
-
-fn keyinput_generator_detail(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
-    let mut kbd = KEYBDINPUT::default();
-    let vk = vk;
-    kbd.wVk = vk;
-    kbd.wScan = scan;
-    kbd.dwFlags = flags;
-    kbd.time = 0;
-    // ExtraInfoは特に意味のある値ではない。
-    // このアプリから生成されたことを主張するだけの値。（物理キーの入力ではないという印）
-    // もちろん他のアプリがこの値を設定してたら区別はつかないだろう。
-    // ただし、物理キーボード入力は常に0であるのでそれとかぶらなければ正直何でも良いので12345という値にしている。
-    kbd.dwExtraInfo = 12345;
-
-    let mut input = INPUT::default();
-    input.r#type = INPUT_KEYBOARD;
-    input.Anonymous.ki = kbd;
-    input
-}
-
-fn send_key_input(c: u16) {
-    unsafe {
-        let mut input_list = Vec::new();
-        let kl = GetKeyboardLayout(0);
-        let vk = VIRTUAL_KEY(VkKeyScanExA(CHAR(c as u8), kl) as u16);
-
-        input_list.push(control_key(false));
-        if vk.0 & 0x100 == 0x100 {
-            input_list.push(shift_key(true));
-        }
-        input_list.append(&mut key_input_generator(vk, c));
-        if vk.0 & 0x100 == 0x100 {
-            input_list.push(shift_key(false));
-        }
-        input_list.push(control_key(true));
-        let _result = SendInput(&input_list, std::mem::size_of::<INPUT>() as i32);
-    }
 }
 
 fn get_window_text(hwnd: HWND) -> String {
