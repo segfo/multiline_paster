@@ -8,7 +8,7 @@ version = "1.0.0"
 [dependencies]
 clap = {version = "4.0.32", features = ["derive", "cargo"]}
 once_cell = "1.16.0"
-send_input = {path = "../windows_send_input"}
+send_input = {path = "./windows_send_input"}
 [dependencies.async-std]
 features = ["attributes", "std"]
 version = "1.12.0"
