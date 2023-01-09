@@ -14,12 +14,6 @@ use windows::Win32::{
     UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
-// キーボード入力の発行元を簡易的に識別するためのメタデータ
-// 値については特に意味はない。ただし、0以外であること（ハードウェアキーボードは0のため）
-enum KeyExtraInfo {
-    EmulateKeyData = 12345,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InputMode {
     Clipboard,
