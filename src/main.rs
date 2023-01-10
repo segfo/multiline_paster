@@ -37,12 +37,12 @@ impl CommandLineArgs {
 use serde_derive::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Config {
-    tabindex_key: Vec<char>,
+    tabindex_key: String,
 }
 impl Default for Config {
     fn default() -> Self {
         Config {
-            tabindex_key: vec!['\t'],
+            tabindex_key: "\t".to_owned(),
         }
     }
 }
@@ -58,7 +58,7 @@ impl Config {
             Err(_e) => {
                 let conf = Config::default();
                 match OpenOptions::new()
-                    .create_new(true)
+                    .create(true)
                     .truncate(true)
                     .write(true)
                     .read(false)
@@ -72,7 +72,7 @@ impl Config {
                         pathbuf.push(path);
                         match OpenOptions::new()
                             .truncate(true)
-                            .create_new(true)
+                            .create(true)
                             .write(true)
                             .read(false)
                             .open(pathbuf)
@@ -98,7 +98,7 @@ async fn main() {
     let args = CommandLineArgs::parse();
     let mut mode = args.configure(RunMode::default());
     let config = Config::load_file("config.toml").tabindex_key;
-    mode.next_key = config;
+    mode.tabindex_keyseq = config;
     set_mode(mode);
     unsafe {
         while GetMessageW(&mut msg, HWND::default(), 0, 0).into() {

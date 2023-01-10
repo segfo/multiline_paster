@@ -29,14 +29,14 @@ static mut g_mode: Lazy<Mutex<RunMode>> = Lazy::new(|| Mutex::new(RunMode::defau
 pub struct RunMode {
     input_mode: InputMode,
     burst_mode: bool,
-    pub next_key: Vec<char>,
+    pub tabindex_keyseq: String,
 }
 impl Default for RunMode {
     fn default() -> Self {
         RunMode {
             input_mode: InputMode::DirectKeyInput,
             burst_mode: false,
-            next_key: Vec::new(),
+            tabindex_keyseq: String::new(),
         }
     }
 }
@@ -56,8 +56,8 @@ impl RunMode {
     pub fn get_input_mode(&self) -> InputMode {
         self.input_mode
     }
-    pub fn get_next_key(&self) -> Vec<char> {
-        self.next_key.clone()
+    pub fn get_tabindex_keyseq(&self) -> String {
+        self.tabindex_keyseq.clone()
     }
 }
 
@@ -186,9 +186,9 @@ async fn write_clipboard() {
         // バーストモード
         // 将来的にはTAB以外でもできるようにする。
         // 今は仮の姿
-        let (is_burst_mode, next_key) = {
+        let (is_burst_mode, tabindex_keyseq) = {
             let mode = g_mode.lock().unwrap();
-            (mode.is_burst_mode(), mode.get_next_key())
+            (mode.is_burst_mode(), mode.get_tabindex_keyseq())
         };
 
         if is_burst_mode {
@@ -200,7 +200,7 @@ async fn write_clipboard() {
                     .scan_code(virtual_key_to_scancode(VK_LCONTROL))
                     .build(),
             );
-            for key in next_key {
+            for key in tabindex_keyseq.chars() {
                 KeycodeBuilder::default()
                     .char_build(key)
                     .iter()
