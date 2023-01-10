@@ -29,14 +29,14 @@ static mut g_mode: Lazy<Mutex<RunMode>> = Lazy::new(|| Mutex::new(RunMode::defau
 pub struct RunMode {
     input_mode: InputMode,
     burst_mode: bool,
-    pub next_key: Vec<char>
+    pub next_key: Vec<char>,
 }
 impl Default for RunMode {
     fn default() -> Self {
         RunMode {
             input_mode: InputMode::DirectKeyInput,
             burst_mode: false,
-            next_key: Vec::new()
+            next_key: Vec::new(),
         }
     }
 }
@@ -56,7 +56,7 @@ impl RunMode {
     pub fn get_input_mode(&self) -> InputMode {
         self.input_mode
     }
-    pub fn get_next_key(&self) -> Vec<char>{
+    pub fn get_next_key(&self) -> Vec<char> {
         self.next_key.clone()
     }
 }
@@ -186,11 +186,11 @@ async fn write_clipboard() {
         // バーストモード
         // 将来的にはTAB以外でもできるようにする。
         // 今は仮の姿
-        let (is_burst_mode,next_key)={
+        let (is_burst_mode, next_key) = {
             let mode = g_mode.lock().unwrap();
-            (mode.is_burst_mode(),mode.get_next_key())
+            (mode.is_burst_mode(), mode.get_next_key())
         };
-        
+
         if is_burst_mode {
             let mut kbd = Keyboard::new();
             let len = cb.len();
@@ -200,7 +200,6 @@ async fn write_clipboard() {
                     .scan_code(virtual_key_to_scancode(VK_LCONTROL))
                     .build(),
             );
-            // let next_key = &mode.next_key;
             for key in next_key {
                 KeycodeBuilder::default()
                     .char_build(key)
@@ -316,15 +315,15 @@ fn get_window_text(hwnd: HWND) -> String {
     unsafe {
         // GetWindowTextLengthW + GetWindowTextWは別プロセスへの取得を意図したものではないとの記述がMSDNにあるので
         // SendMessageWで取得することにする。
-        let len = (SendMessageW(hwnd, WM_GETTEXTLENGTH, WPARAM(0), LPARAM(0)).0 as usize + 1) * 2;
+        let len = SendMessageW(hwnd, WM_GETTEXTLENGTH, WPARAM(0), LPARAM(0)).0 as usize + 1;
         let mut buf = vec![0u16; len];
         SendMessageW(
             hwnd,
             WM_GETTEXT,
-            WPARAM(len / 2),
+            WPARAM(len),
             LPARAM(buf.as_mut_ptr() as isize),
         );
-        OsString::from_wide(&buf)
+        OsString::from_wide(&buf[0..buf.len() - 1])
             .to_os_string()
             .into_string()
             .unwrap()

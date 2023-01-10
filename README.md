@@ -24,6 +24,18 @@ cargo build --release
 ## Rustがインストールされてない場合
 [リリース画面](https://github.com/segfo/multiline_paster/releases)から好きなものを持っていくが良い。
 
+# 概要
+```
+multiline_paster.exe -h    
+Usage: multiline_paster.exe [OPTIONS]
+
+Options:
+      --clipboard  動作モードがクリップボード経由でペーストされます（デフォルト：キーボードエミュレーションでのペースト） 本モードはバーストモードと排他です。
+      --burst      バーストモード（フォームに対する連続入力モード）にするか選択できます。
+  -h, --help       Print help information
+  -V, --version    Print version information
+```
+
 # 動作モードについて
 動作モードは2種類あります。
 1. DirectInputモード
@@ -63,9 +75,8 @@ cargo build --release
 `multiline_paster --clipboard`
 
 ## バースト入力モード（通称：バーストモード）
-実験的な機能です。
-TABキーを自動で入力して隣のフォームに移動しながら入力するモードです。
-将来的には、TABキー以外にも対応できるように設定ファイルで「移動用のキー」を設定できるようにする予定です。
-v1.1以降のバージョンで対応しています。
-クリップボードモードでは使えません。
-（もしクリップボードモードで使いたかったらいい感じに改造してPull Request送ってほしい）
+TABキーを自動で入力して隣のフォームに移動しながら入力するモードです。  
+`multiline_paster --burst`
+v1.4以降のバージョンで全機能に対応しています。  
+クリップボードモードでは使えません。  
+（もしクリップボードモードで使いたかったらいい感じに改造してPull Request送ってほしい）  
