@@ -28,10 +28,11 @@ static mut g_mode: Lazy<Mutex<RunMode>> = Lazy::new(|| Mutex::new(RunMode::defau
 
 #[derive(Debug, PartialEq)]
 pub struct RunMode {
-    input_mode: InputMode,
-    burst_mode: bool,
-    tabindex_keyseq: String,
-    wait_msec: u64,
+    pub input_mode: InputMode,
+    pub burst_mode: bool,
+    pub tabindex_keyseq: String,
+    pub line_delay_msec: u64,
+    pub char_delay_msec: u64,
 }
 impl Default for RunMode {
     fn default() -> Self {
@@ -39,7 +40,8 @@ impl Default for RunMode {
             input_mode: InputMode::DirectKeyInput,
             burst_mode: false,
             tabindex_keyseq: String::new(),
-            wait_msec: 200,
+            line_delay_msec: 200,
+            char_delay_msec: 0,
         }
     }
 }
@@ -47,30 +49,22 @@ impl RunMode {
     pub fn new() -> Self {
         RunMode::default()
     }
-    pub fn set_tabindex_keyseq(&mut self, seq: String) {
-        self.tabindex_keyseq = seq;
+    pub fn set_config(&mut self, config: Config) {
+        self.tabindex_keyseq = config.tabindex_key;
+        self.line_delay_msec = config.line_delay_msec;
+        self.char_delay_msec = config.char_delay_msec;
     }
-    pub fn set_burst_mode(&mut self, enable: bool) {
-        self.burst_mode = enable;
+    pub fn set_burst_mode(&mut self, burst_mode: bool) {
+        self.burst_mode = burst_mode
     }
     pub fn set_input_mode(&mut self, input_mode: InputMode) {
         self.input_mode = input_mode;
     }
-    pub fn is_burst_mode(&self) -> bool {
-        self.burst_mode
-    }
-    pub fn get_input_mode(&self) -> InputMode {
-        self.input_mode
-    }
-    pub fn get_tabindex_keyseq(&self) -> String {
-        self.tabindex_keyseq.clone()
-    }
-    pub fn set_wait_msec(&mut self, msec: u64) {
-        self.wait_msec = msec;
-    }
-    pub fn get_wait_msec(&self) -> Duration {
-        Duration::from_millis(self.wait_msec)
-    }
+    pub fn is_burst_mode(&self)->bool{self.burst_mode}
+    pub fn get_input_mode(&self)->InputMode{self.input_mode}
+    pub fn get_tabindex_keyseq(&self)->String{self.tabindex_keyseq.clone()}
+    pub fn get_line_delay_msec(&self)->u64{self.line_delay_msec}
+    pub fn get_char_delay_msec(&self)->u64{self.char_delay_msec}
 }
 
 // クリップボード挿入モードか、DirectInputモードで動作するか選択できるようにする。
@@ -80,7 +74,9 @@ pub fn set_mode(mode: RunMode) {
         *locked_gmode = mode;
     };
 }
+use crate::Config;
 use async_std::task;
+
 #[no_mangle]
 pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if HC_ACTION as i32 == ncode {
@@ -198,18 +194,20 @@ async fn write_clipboard() {
         // バーストモード
         // 将来的にはTAB以外でもできるようにする。
         // 今は仮の姿
-        let (is_burst_mode, tabindex_keyseq, wait_msec) = {
+        let (is_burst_mode, tabindex_keyseq, get_line_delay_msec,char_delay_msec) = {
             let mode = g_mode.lock().unwrap();
             (
                 mode.is_burst_mode(),
                 mode.get_tabindex_keyseq(),
-                mode.get_wait_msec(),
+                mode.get_line_delay_msec(),
+                mode.get_char_delay_msec(),
             )
         };
 
         if is_burst_mode {
             let mut kbd = Keyboard::new();
             let len = cb.len();
+            kbd.new_delay(char_delay_msec);
             kbd.append_input_chain(
                 KeycodeBuilder::default()
                     .vk(VK_LCONTROL.0)
@@ -226,7 +224,7 @@ async fn write_clipboard() {
                 paste(&mut cb);
                 kbd.send_key();
                 // キーストロークとの間に数ミリ秒の待機時間を設ける
-                std::thread::sleep(wait_msec)
+                std::thread::sleep(Duration::from_millis(get_line_delay_msec))
             }
         } else {
             paste(&mut cb);
@@ -261,7 +259,11 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
 
 unsafe fn paste(cb: &mut VecDeque<String>) {
     let s = cb.pop_back().unwrap();
-    let input_mode = g_mode.lock().unwrap().get_input_mode();
+    let (input_mode,char_delay_msec)= {
+        let mode = g_mode.lock().unwrap();
+        (mode.get_input_mode(),mode.get_char_delay_msec())
+    };
+
     show_operation_message("ペースト");
     if input_mode == InputMode::DirectKeyInput {
         let is_key_pressed = |vk: usize| -> bool {
@@ -273,6 +275,7 @@ unsafe fn paste(cb: &mut VecDeque<String>) {
         // さらに、現在のキーボードの状況に合わせて今度は制御キーを復旧させる。
         let mut kbd = Keyboard::new();
         // CTRLキーを一旦解除する
+        kbd.new_delay(char_delay_msec);
         kbd.append_input_chain(
             KeycodeBuilder::default()
                 .vk(VK_LCONTROL.0)
