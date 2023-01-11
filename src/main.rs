@@ -38,11 +38,13 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Config {
     tabindex_key: String,
+    wait_msec: u64,
 }
 impl Default for Config {
     fn default() -> Self {
         Config {
             tabindex_key: "\t".to_owned(),
+            wait_msec: 200,
         }
     }
 }
@@ -97,8 +99,9 @@ async fn main() {
     let mut msg = MSG::default();
     let args = CommandLineArgs::parse();
     let mut mode = args.configure(RunMode::default());
-    let config = Config::load_file("config.toml").tabindex_key;
-    mode.tabindex_keyseq = config;
+    let config = Config::load_file("config.toml");
+    mode.set_tabindex_keyseq(config.tabindex_key);
+    mode.set_wait_msec(config.wait_msec);
     set_mode(mode);
     unsafe {
         while GetMessageW(&mut msg, HWND::default(), 0, 0).into() {

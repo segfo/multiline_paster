@@ -1,6 +1,7 @@
 use once_cell::unsync::*;
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::time::Duration;
 use std::{
     collections::VecDeque,
     sync::{Mutex, RwLock},
@@ -29,7 +30,8 @@ static mut g_mode: Lazy<Mutex<RunMode>> = Lazy::new(|| Mutex::new(RunMode::defau
 pub struct RunMode {
     input_mode: InputMode,
     burst_mode: bool,
-    pub tabindex_keyseq: String,
+    tabindex_keyseq: String,
+    wait_msec: u64,
 }
 impl Default for RunMode {
     fn default() -> Self {
@@ -37,12 +39,16 @@ impl Default for RunMode {
             input_mode: InputMode::DirectKeyInput,
             burst_mode: false,
             tabindex_keyseq: String::new(),
+            wait_msec: 200,
         }
     }
 }
 impl RunMode {
     pub fn new() -> Self {
         RunMode::default()
+    }
+    pub fn set_tabindex_keyseq(&mut self, seq: String) {
+        self.tabindex_keyseq = seq;
     }
     pub fn set_burst_mode(&mut self, enable: bool) {
         self.burst_mode = enable;
@@ -58,6 +64,12 @@ impl RunMode {
     }
     pub fn get_tabindex_keyseq(&self) -> String {
         self.tabindex_keyseq.clone()
+    }
+    pub fn set_wait_msec(&mut self, msec: u64) {
+        self.wait_msec = msec;
+    }
+    pub fn get_wait_msec(&self) -> Duration {
+        Duration::from_millis(self.wait_msec)
     }
 }
 
@@ -186,9 +198,13 @@ async fn write_clipboard() {
         // バーストモード
         // 将来的にはTAB以外でもできるようにする。
         // 今は仮の姿
-        let (is_burst_mode, tabindex_keyseq) = {
+        let (is_burst_mode, tabindex_keyseq, wait_msec) = {
             let mode = g_mode.lock().unwrap();
-            (mode.is_burst_mode(), mode.get_tabindex_keyseq())
+            (
+                mode.is_burst_mode(),
+                mode.get_tabindex_keyseq(),
+                mode.get_wait_msec(),
+            )
         };
 
         if is_burst_mode {
@@ -208,7 +224,9 @@ async fn write_clipboard() {
             }
             for _i in 0..len {
                 paste(&mut cb);
-                kbd.send_key()
+                kbd.send_key();
+                // キーストロークとの間に数ミリ秒の待機時間を設ける
+                std::thread::sleep(wait_msec)
             }
         } else {
             paste(&mut cb);
