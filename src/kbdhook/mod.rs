@@ -6,20 +6,19 @@ use std::{
     collections::VecDeque,
     sync::{Mutex, RwLock},
 };
-
 use send_input::keyboard::windows::*;
-
 use windows::Win32::{
     Foundation::*,
     System::{DataExchange::*, Memory::*, SystemServices::*, WindowsProgramming::*},
     UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InputMode {
     Clipboard,
     DirectKeyInput,
 }
+use crate::Config;
+use async_std::task;
 
 static mut hook: HHOOK = HHOOK(0);
 static mut map: Lazy<RwLock<Vec<bool>>> = Lazy::new(|| RwLock::new(vec![false; 256]));
@@ -60,11 +59,21 @@ impl RunMode {
     pub fn set_input_mode(&mut self, input_mode: InputMode) {
         self.input_mode = input_mode;
     }
-    pub fn is_burst_mode(&self)->bool{self.burst_mode}
-    pub fn get_input_mode(&self)->InputMode{self.input_mode}
-    pub fn get_tabindex_keyseq(&self)->String{self.tabindex_keyseq.clone()}
-    pub fn get_line_delay_msec(&self)->u64{self.line_delay_msec}
-    pub fn get_char_delay_msec(&self)->u64{self.char_delay_msec}
+    pub fn is_burst_mode(&self) -> bool {
+        self.burst_mode
+    }
+    pub fn get_input_mode(&self) -> InputMode {
+        self.input_mode
+    }
+    pub fn get_tabindex_keyseq(&self) -> String {
+        self.tabindex_keyseq.clone()
+    }
+    pub fn get_line_delay_msec(&self) -> u64 {
+        self.line_delay_msec
+    }
+    pub fn get_char_delay_msec(&self) -> u64 {
+        self.char_delay_msec
+    }
 }
 
 // クリップボード挿入モードか、DirectInputモードで動作するか選択できるようにする。
@@ -74,8 +83,6 @@ pub fn set_mode(mode: RunMode) {
         *locked_gmode = mode;
     };
 }
-use crate::Config;
-use async_std::task;
 
 #[no_mangle]
 pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -127,7 +134,12 @@ fn judge_combo_key() -> bool {
         if lmap[0x43] || lmap[0x58] {
             // 0x43:C
             // 0x58:X
-            reset_clipboard();
+            if lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize] {
+                task::spawn(reset_clipboard());
+            }else{
+                task::spawn(copy_clipboard());
+            }
+            // task::spawn(reset_clipboard());
             return true;
         } else if lmap[0x56] {
             // 0x56: V
@@ -140,8 +152,20 @@ fn judge_combo_key() -> bool {
     false
 }
 
-fn reset_clipboard() {
+async fn copy_clipboard() {
     show_operation_message("コピー");
+    // WindowsがCTRL+Cして、クリップボードにデータを格納するまで待機する。
+    std::thread::sleep(Duration::from_millis(250));
+    let mut cb = unsafe { clipboard.lock().unwrap() };
+    let iclip = Clipboard::open();
+    unsafe {
+        load_data_from_clipboard(&mut *cb);
+        reset_clipboard();
+    }
+}
+
+async fn reset_clipboard() {
+    show_operation_message("クリップボードデータの削除");
     let mut cb = unsafe { clipboard.lock().unwrap() };
     cb.clear();
 }
@@ -166,7 +190,7 @@ fn show_operation_message<T: Into<String>>(operation: T) {
     let active_window = unsafe { GetForegroundWindow() };
     if active_window.0 != 0 {
         println!(
-            "ウィンドウ 「{}」 に対して{}が行われました。",
+            "ウィンドウ「{}」上で{}操作が行われました。",
             get_window_text(active_window),
             operation.into()
         );
@@ -180,21 +204,19 @@ async fn write_clipboard() {
     unsafe {
         // DropTraitを有効にするために変数に束縛する
         // 束縛先の変数は未使用だが、最適化によってOpenClipboardが実行されなくなるので変数束縛は必ず行う。
+        // ここでクリップボードを開いている理由は、CTRL+VによってWindowsがショートカットに反応してペーストしないようにロックする意図がある。
         let iclip = Clipboard::open();
         // クリップボードを開く
         let mut cb = clipboard.lock().unwrap();
-
+        EmptyClipboard();
         if cb.len() == 0 {
-            if let None = load_data_from_clipboard(&mut cb) {
+            // if let None = load_data_from_clipboard(&mut cb) {
                 println!("クリップボードにデータがありません。");
                 return;
-            }
+            // }
         }
-        EmptyClipboard();
-        // バーストモード
-        // 将来的にはTAB以外でもできるようにする。
-        // 今は仮の姿
-        let (is_burst_mode, tabindex_keyseq, get_line_delay_msec,char_delay_msec) = {
+        // オプションをロードする
+        let (is_burst_mode, tabindex_keyseq, get_line_delay_msec, char_delay_msec) = {
             let mode = g_mode.lock().unwrap();
             (
                 mode.is_burst_mode(),
@@ -241,7 +263,7 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
             let p_text = GlobalLock(h_text.0);
             // 今クリップボードにある内容をコピーする（改行で分割される）
             // 後でここの挙動を変えても良さそう。
-            if cb.len() == 0 {
+            // if cb.len() == 0 {
                 let text = u16_ptr_to_string(p_text as *const _).into_string().unwrap();
                 for line in text.lines() {
                     if line.len() != 0 {
@@ -250,7 +272,7 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
                         cb.push_front("".to_owned());
                     }
                 }
-            }
+            // }
             GlobalUnlock(h_text.0);
             Some(())
         }
@@ -259,9 +281,9 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
 
 unsafe fn paste(cb: &mut VecDeque<String>) {
     let s = cb.pop_back().unwrap();
-    let (input_mode,char_delay_msec)= {
+    let (input_mode, char_delay_msec) = {
         let mode = g_mode.lock().unwrap();
-        (mode.get_input_mode(),mode.get_char_delay_msec())
+        (mode.get_input_mode(), mode.get_char_delay_msec())
     };
 
     show_operation_message("ペースト");
