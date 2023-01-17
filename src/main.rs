@@ -40,6 +40,7 @@ struct Config {
     tabindex_key: String,
     line_delay_msec: u64,
     char_delay_msec: u64,
+    copy_wait_msec: u64,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -47,6 +48,7 @@ impl Default for Config {
             tabindex_key: "\t".to_owned(),
             line_delay_msec: 200,
             char_delay_msec: 0,
+            copy_wait_msec: 250,
         }
     }
 }

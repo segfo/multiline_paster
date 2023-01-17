@@ -1,4 +1,5 @@
 use once_cell::unsync::*;
+use send_input::keyboard::windows::*;
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::time::Duration;
@@ -6,7 +7,6 @@ use std::{
     collections::VecDeque,
     sync::{Mutex, RwLock},
 };
-use send_input::keyboard::windows::*;
 use windows::Win32::{
     Foundation::*,
     System::{DataExchange::*, Memory::*, SystemServices::*, WindowsProgramming::*},
@@ -23,7 +23,7 @@ use async_std::task;
 static mut hook: HHOOK = HHOOK(0);
 static mut map: Lazy<RwLock<Vec<bool>>> = Lazy::new(|| RwLock::new(vec![false; 256]));
 static mut clipboard: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(VecDeque::new()));
-static mut g_mode: Lazy<Mutex<RunMode>> = Lazy::new(|| Mutex::new(RunMode::default()));
+static mut g_mode: Lazy<RwLock<RunMode>> = Lazy::new(|| RwLock::new(RunMode::default()));
 
 #[derive(Debug, PartialEq)]
 pub struct RunMode {
@@ -32,6 +32,7 @@ pub struct RunMode {
     pub tabindex_keyseq: String,
     pub line_delay_msec: u64,
     pub char_delay_msec: u64,
+    pub copy_wait_msec: u64,
 }
 impl Default for RunMode {
     fn default() -> Self {
@@ -41,6 +42,7 @@ impl Default for RunMode {
             tabindex_keyseq: String::new(),
             line_delay_msec: 200,
             char_delay_msec: 0,
+            copy_wait_msec: 250,
         }
     }
 }
@@ -74,12 +76,15 @@ impl RunMode {
     pub fn get_char_delay_msec(&self) -> u64 {
         self.char_delay_msec
     }
+    pub fn get_copy_wait_millis(&self) -> u64 {
+        self.copy_wait_msec
+    }
 }
 
 // クリップボード挿入モードか、DirectInputモードで動作するか選択できるようにする。
 pub fn set_mode(mode: RunMode) {
     unsafe {
-        let mut locked_gmode = g_mode.lock().unwrap();
+        let mut locked_gmode = g_mode.write().unwrap();
         *locked_gmode = mode;
     };
 }
@@ -136,7 +141,7 @@ fn judge_combo_key() -> bool {
             // 0x58:X
             if lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize] {
                 task::spawn(reset_clipboard());
-            }else{
+            } else {
                 task::spawn(copy_clipboard());
             }
             // task::spawn(reset_clipboard());
@@ -147,7 +152,8 @@ fn judge_combo_key() -> bool {
             // 意訳：さっさとフックプロシージャから復帰しないとキーボードがハングする。
             task::spawn(write_clipboard());
             return true;
-        } else if lmap[0x5A]&&(lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize]){ // Z
+        } else if lmap[0x5A] && (lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize]) {
+            // Z
             task::spawn(undo_clipboard());
         }
     }
@@ -163,7 +169,8 @@ async fn undo_clipboard() {
 async fn copy_clipboard() {
     show_operation_message("コピー");
     // WindowsがCTRL+Cして、クリップボードにデータを格納するまで待機する。
-    std::thread::sleep(Duration::from_millis(250));
+    let wait = unsafe { g_mode.read().unwrap().get_copy_wait_millis() };
+    std::thread::sleep(Duration::from_millis(wait));
     let mut cb = unsafe { clipboard.lock().unwrap() };
     let iclip = Clipboard::open();
     unsafe {
@@ -219,13 +226,13 @@ async fn write_clipboard() {
         EmptyClipboard();
         if cb.len() == 0 {
             // if let None = load_data_from_clipboard(&mut cb) {
-                println!("クリップボードにデータがありません。");
-                return;
+            println!("クリップボードにデータがありません。");
+            return;
             // }
         }
         // オプションをロードする
         let (is_burst_mode, tabindex_keyseq, get_line_delay_msec, char_delay_msec) = {
-            let mode = g_mode.lock().unwrap();
+            let mode = g_mode.read().unwrap();
             (
                 mode.is_burst_mode(),
                 mode.get_tabindex_keyseq(),
@@ -272,14 +279,14 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
             // 今クリップボードにある内容をコピーする（改行で分割される）
             // 後でここの挙動を変えても良さそう。
             // if cb.len() == 0 {
-                let text = u16_ptr_to_string(p_text as *const _).into_string().unwrap();
-                for line in text.lines() {
-                    if line.len() != 0 {
-                        cb.push_front(line.to_owned());
-                    } else {
-                        cb.push_front("".to_owned());
-                    }
+            let text = u16_ptr_to_string(p_text as *const _).into_string().unwrap();
+            for line in text.lines() {
+                if line.len() != 0 {
+                    cb.push_front(line.to_owned());
+                } else {
+                    cb.push_front("".to_owned());
                 }
+            }
             // }
             GlobalUnlock(h_text.0);
             Some(())
@@ -290,7 +297,7 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
 unsafe fn paste(cb: &mut VecDeque<String>) {
     let s = cb.pop_back().unwrap();
     let (input_mode, char_delay_msec) = {
-        let mode = g_mode.lock().unwrap();
+        let mode = g_mode.read().unwrap();
         (mode.get_input_mode(), mode.get_char_delay_msec())
     };
 
