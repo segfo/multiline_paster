@@ -147,9 +147,17 @@ fn judge_combo_key() -> bool {
             // 意訳：さっさとフックプロシージャから復帰しないとキーボードがハングする。
             task::spawn(write_clipboard());
             return true;
+        } else if lmap[0x5A]&&(lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize]){ // Z
+            task::spawn(undo_clipboard());
         }
     }
     false
+}
+
+async fn undo_clipboard() {
+    show_operation_message("クリップボードに対するアンドゥ");
+    let mut cb = unsafe { clipboard.lock().unwrap() };
+    cb.pop_front();
 }
 
 async fn copy_clipboard() {
