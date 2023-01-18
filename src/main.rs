@@ -41,6 +41,7 @@ struct Config {
     line_delay_msec: u64,
     char_delay_msec: u64,
     copy_wait_msec: u64,
+    max_line_length: usize,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -49,6 +50,7 @@ impl Default for Config {
             line_delay_msec: 200,
             char_delay_msec: 0,
             copy_wait_msec: 250,
+            max_line_length: 512,
         }
     }
 }

@@ -27,12 +27,13 @@ static mut g_mode: Lazy<RwLock<RunMode>> = Lazy::new(|| RwLock::new(RunMode::def
 
 #[derive(Debug, PartialEq)]
 pub struct RunMode {
-    pub input_mode: InputMode,
-    pub burst_mode: bool,
-    pub tabindex_keyseq: String,
-    pub line_delay_msec: u64,
-    pub char_delay_msec: u64,
-    pub copy_wait_msec: u64,
+    input_mode: InputMode,
+    burst_mode: bool,
+    tabindex_keyseq: String,
+    line_delay_msec: u64,
+    char_delay_msec: u64,
+    copy_wait_msec: u64,
+    max_line_len: usize,
 }
 impl Default for RunMode {
     fn default() -> Self {
@@ -43,6 +44,7 @@ impl Default for RunMode {
             line_delay_msec: 200,
             char_delay_msec: 0,
             copy_wait_msec: 250,
+            max_line_len: 512,
         }
     }
 }
@@ -54,6 +56,7 @@ impl RunMode {
         self.tabindex_keyseq = config.tabindex_key;
         self.line_delay_msec = config.line_delay_msec;
         self.char_delay_msec = config.char_delay_msec;
+        self.max_line_len = config.max_line_length;
     }
     pub fn set_burst_mode(&mut self, burst_mode: bool) {
         self.burst_mode = burst_mode
@@ -78,6 +81,9 @@ impl RunMode {
     }
     pub fn get_copy_wait_millis(&self) -> u64 {
         self.copy_wait_msec
+    }
+    pub fn get_max_line_len(&self) -> usize {
+        self.max_line_len
     }
 }
 
@@ -144,7 +150,6 @@ fn judge_combo_key() -> bool {
             } else {
                 task::spawn(copy_clipboard());
             }
-            // task::spawn(reset_clipboard());
             return true;
         } else if lmap[0x56] {
             // 0x56: V
@@ -164,6 +169,7 @@ async fn undo_clipboard() {
     show_operation_message("クリップボードに対するアンドゥ");
     let mut cb = unsafe { clipboard.lock().unwrap() };
     cb.pop_front();
+    println!("アンドゥ後のクリップボード内データ行数: {}行", cb.len());
 }
 
 async fn copy_clipboard() {
@@ -225,10 +231,8 @@ async fn write_clipboard() {
         let mut cb = clipboard.lock().unwrap();
         EmptyClipboard();
         if cb.len() == 0 {
-            // if let None = load_data_from_clipboard(&mut cb) {
             println!("クリップボードにデータがありません。");
             return;
-            // }
         }
         // オプションをロードする
         let (is_burst_mode, tabindex_keyseq, get_line_delay_msec, char_delay_msec) = {
@@ -271,6 +275,7 @@ async fn write_clipboard() {
 
 unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
     let h_text = GetClipboardData(CF_UNICODETEXT.0);
+    let line_len_max = unsafe { g_mode.read().unwrap().get_max_line_len() };
     match h_text {
         Err(_) => None,
         Ok(h_text) => {
@@ -278,16 +283,19 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
             let p_text = GlobalLock(h_text.0);
             // 今クリップボードにある内容をコピーする（改行で分割される）
             // 後でここの挙動を変えても良さそう。
-            // if cb.len() == 0 {
             let text = u16_ptr_to_string(p_text as *const _).into_string().unwrap();
             for line in text.lines() {
-                if line.len() != 0 {
+                let line_len = line.len();
+                if line_len != 0 {
+                    if line_len_max > 0 && line_len >= line_len_max {
+                        println!("1行が長過ぎる文字列({}文字以上の行)をコピーしようとしたため、当該行はスキップしました。",line_len_max);
+                        continue;
+                    }
                     cb.push_front(line.to_owned());
                 } else {
                     cb.push_front("".to_owned());
                 }
             }
-            // }
             GlobalUnlock(h_text.0);
             Some(())
         }
