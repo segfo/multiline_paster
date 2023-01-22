@@ -1,117 +1,102 @@
-use std::{fs::OpenOptions, io::Write};
+use std::{collections::HashMap, fs::OpenOptions, io::{Write, Read, BufReader, BufWriter}, path::PathBuf, str::FromStr};
 
-use windows::{Win32::Foundation::*, Win32::UI::WindowsAndMessaging::*};
-
+use async_std::path::Path;
+use libloading::{Library, Symbol};
+use multiline_parser_pluginlib::{plugin::*, result::*};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use toolbox::config_loader::ConfigLoader;
+use windows::{
+    Win32::Foundation::*,
+    Win32::{System::Console::SetConsoleCtrlHandler, UI::WindowsAndMessaging::*},
+};
 mod kbdhook;
-use clap::{Parser, *};
+use clap::*;
 use kbdhook::*;
 
-#[clap(group(
-    ArgGroup::new("run_mode")
-        .required(false)
-        .args(&["clipboard", "burst"]),
-))]
+type KeyHandlerFunc = unsafe extern "system" fn(u32, KBDLLHOOKSTRUCT) -> PluginResult;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct CommandLineArgs {
     /// 動作モードがクリップボード経由でペーストされます（デフォルト：キーボードエミュレーションでのペースト）
     /// 本モードはバーストモードと排他です。
-    #[arg(long, default_value_t = false)]
-    clipboard: bool,
-    /// バーストモード（フォームに対する連続入力モード）にするか選択できます。
-    #[arg(long, default_value_t = false)]
-    burst: bool,
+    #[arg(long)]
+    install_dll: Option<String>,
 }
-impl CommandLineArgs {
-    fn configure(&self, mut run_mode: RunMode) -> RunMode {
-        run_mode.set_burst_mode(self.burst);
-        run_mode.set_input_mode(if self.clipboard {
-            InputMode::Clipboard
-        } else {
-            InputMode::DirectKeyInput
-        });
-        run_mode
+fn try_install_plugin() -> CommandLineArgs {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && (args[1] == "-h" || args[1] == "--help") {
+        let mut t =
+            command!().arg(arg!(--install_dll "インストールするDLLファイルパスを指定します。"));
+        t.print_help();
+        println!("\n⚡アドオンによる追加オプション⚡\n（-h/--helpでヘルプ表示をサポートしているアドオンでのみ表示されます）");
+        CommandLineArgs { install_dll: None }
+    } else {
+        CommandLineArgs::parse()
     }
 }
 
-use serde_derive::{Deserialize, Serialize};
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Config {
-    tabindex_key: String,
-    line_delay_msec: u64,
-    char_delay_msec: u64,
-    copy_wait_msec: u64,
-    max_line_length: usize,
-}
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            tabindex_key: "\t".to_owned(),
-            line_delay_msec: 200,
-            char_delay_msec: 0,
-            copy_wait_msec: 250,
-            max_line_length: 512,
-        }
-    }
-}
-mod loadconfig;
-use loadconfig::*;
-impl Config {
-    // カレントディレクトリに新規作成を試みる
-    // もし新規作成できなければ、ホームディレクトリに作成する
-    fn load_file(path: &str) -> Self {
-        let config = TomlConfigDeserializer::<Config>::from_file(path);
-        match config {
-            Ok(file) => file,
-            Err(_e) => {
-                let conf = Config::default();
-                match OpenOptions::new()
-                    .create(true)
-                    .truncate(true)
-                    .write(true)
-                    .read(false)
-                    .open(path)
-                {
-                    Ok(mut file) => {
-                        let _r = file.write(toml::to_string(&conf).unwrap().as_bytes());
-                    }
-                    Err(_e) => {
-                        let mut pathbuf = std::fs::canonicalize(&home_dir().unwrap()).unwrap();
-                        pathbuf.push(path);
-                        match OpenOptions::new()
-                            .truncate(true)
-                            .create(true)
-                            .write(true)
-                            .read(false)
-                            .open(pathbuf)
-                        {
-                            Ok(mut file) => {
-                                let _r = file.write(toml::to_string(&conf).unwrap().as_bytes());
-                            }
-                            Err(_e) => {}
-                        }
-                    }
-                }
-                conf
-            }
-        }
-    }
-}
-
-use dirs::home_dir;
 #[async_std::main]
 async fn main() {
+    let conf: MasterConfig = ConfigLoader::load_file("config.toml");
+    let mut pm = PluginManager::new(&conf.plugin_directory);
+    if let Err(e) = pm.load_plugin(&conf.addon_name) {
+        println!("メインロジック・アドオンがロードできませんでした。\n{}", e);
+        return;
+    }
+    if let Some(install_dll) = try_install_plugin().install_dll {
+        // let path = PathBuf::from(install_dll);
+        let mut dest_path = PathBuf::from(conf.plugin_directory);
+        let dll=PathBuf::from(&install_dll);
+        if let Some(file_name)=dll.file_name(){
+            dest_path.push(file_name);
+            let src = match OpenOptions::new().read(true).write(false).open(file_name){
+                Ok(file)=>{file},
+                Err(e)=>{println!("プラグインはインストールされませんでした。({e})");return;}
+            };
+            let dest = match OpenOptions::new().create_new(true).read(false).truncate(true).write(true).open(dest_path){
+                Ok(file)=>{file},
+                Err(e)=>{println!("同名のプラグインがすでにインストールされています。({e})");return;}
+            };
+            let mut buf=Vec::new();
+            let mut src = BufReader::new(src);
+            if let Err(e)=src.read_to_end(&mut buf){println!("読み込みエラー({e})");}
+            let mut dest = BufWriter::new(dest);
+            if let Err(e)=dest.write(&mut buf){println!("書き込みエラー({e})");}
+            println!("プラグイン \"{install_dll}\" は正しくインストールされました。");
+        };
+        return;
+    }
     sethook();
     let mut msg = MSG::default();
-    let args = CommandLineArgs::parse();
-    let mut mode = args.configure(RunMode::default());
-    let config = Config::load_file("config.toml");
-    mode.set_config(config);
-    set_mode(mode);
+
+    let mut stroke = StrokeMessage::default();
+    let kf: Symbol<KeyHandlerFunc> = pm
+        .get_plugin_function(&conf.addon_name, "key_down")
+        .unwrap();
+    let kd = *kf;
+    let kf: Symbol<KeyHandlerFunc> = pm.get_plugin_function(&conf.addon_name, "key_up").unwrap();
+    let ku = *kf;
+    stroke.set_key_down(Box::new(move |keystate, kbdllhook_struct| unsafe {
+        kd(keystate, kbdllhook_struct)
+    }));
+    stroke.set_key_up(Box::new(move |keystate, kbdllhook_struct| unsafe {
+        ku(keystate, kbdllhook_struct)
+    }));
+    set_stroke_callback(stroke);
+    if let Ok(init_plugin) = pm.get_plugin_function::<fn()>(&conf.addon_name, "init_plugin") {
+        init_plugin()
+    }
     unsafe {
+        SetConsoleCtrlHandler(Some(exit_handler), BOOL(1));
         while GetMessageW(&mut msg, HWND::default(), 0, 0).into() {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
     }
+}
+
+unsafe extern "system" fn exit_handler(_ctrltype: u32) -> BOOL {
+    unhook();
+    BOOL(0)
 }

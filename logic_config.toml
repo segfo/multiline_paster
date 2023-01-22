@@ -1,0 +1,7 @@
+char_delay_msec = 0
+copy_wait_msec = 250
+line_delay_msec = 20
+max_line_length = 512
+tabindex_key = "\n"
+# text_encoders=["multiline_paster_encoder_urlencode.dll","multiline_paster_encoder_base64.dll","multiline_paster_encoder_rot13.dll"]
+# text_encoders = ["multiline_paster_encoder_base64.dll","multiline_paster_encoder_urlencode.dll", "multiline_paster_encoder_rot13.dll"]
