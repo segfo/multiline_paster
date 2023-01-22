@@ -1,4 +1,10 @@
-use std::{collections::HashMap, fs::OpenOptions, io::{Write, Read, BufReader, BufWriter}, path::PathBuf, str::FromStr};
+use std::{
+    collections::HashMap,
+    fs::OpenOptions,
+    io::{BufReader, BufWriter, Read, Write},
+    path::PathBuf,
+    str::FromStr,
+};
 
 use async_std::path::Path;
 use libloading::{Library, Symbol};
@@ -30,41 +36,62 @@ fn try_install_plugin() -> CommandLineArgs {
             command!().arg(arg!(--install_dll "インストールするDLLファイルパスを指定します。"));
         t.print_help();
         println!("\n⚡アドオンによる追加オプション⚡\n（-h/--helpでヘルプ表示をサポートしているアドオンでのみ表示されます）");
-        CommandLineArgs { install_dll: None }
-    } else {
-        CommandLineArgs::parse()
+    } else if args.len() > 1 &&(args[1] == "--install_dll"){
+        return CommandLineArgs::parse()
     }
+    CommandLineArgs { install_dll: None }
 }
 
 #[async_std::main]
 async fn main() {
     let conf: MasterConfig = ConfigLoader::load_file("config.toml");
+    if let Some(install_dll) = try_install_plugin().install_dll {
+        let mkdir_result = std::fs::create_dir(&conf.plugin_directory);
+        // let path = PathBuf::from(install_dll);
+        let mut dest_path = PathBuf::from(conf.plugin_directory);
+        let dll = PathBuf::from(&install_dll);
+        if let Some(file_name) = dll.file_name() {
+            dest_path.push(file_name);
+            let src = match OpenOptions::new().read(true).write(false).open(file_name) {
+                Ok(file) => file,
+                Err(e) => {
+                    println!("プラグインはインストールされませんでした。({e})");
+                    return;
+                }
+            };
+            let dest = match OpenOptions::new()
+                .create_new(true)
+                .read(false)
+                .truncate(true)
+                .write(true)
+                .open(dest_path)
+            {
+                Ok(file) => file,
+                Err(e) => {
+                    let msg = match mkdir_result{
+                        Ok(_)=>format!("同名のプラグインがすでにインストールされています。("),
+                        Err(e)=>format!("プラグインフォルダがありません。({e} / ")
+                    };
+                    println!("{}{e})",msg);
+                    return;
+                }
+            };
+            let mut buf = Vec::new();
+            let mut src = BufReader::new(src);
+            if let Err(e) = src.read_to_end(&mut buf) {
+                println!("読み込みエラー({e})");
+            }
+            let mut dest = BufWriter::new(dest);
+            if let Err(e) = dest.write(&mut buf) {
+                println!("書き込みエラー({e})");
+            }
+            println!("プラグイン \"{install_dll}\" は正しくインストールされました。");
+        };
+        return;
+    }
     let mut pm = PluginManager::new(&conf.plugin_directory);
     if let Err(e) = pm.load_plugin(&conf.addon_name) {
         println!("メインロジック・アドオンがロードできませんでした。\n{}", e);
-        return;
-    }
-    if let Some(install_dll) = try_install_plugin().install_dll {
-        // let path = PathBuf::from(install_dll);
-        let mut dest_path = PathBuf::from(conf.plugin_directory);
-        let dll=PathBuf::from(&install_dll);
-        if let Some(file_name)=dll.file_name(){
-            dest_path.push(file_name);
-            let src = match OpenOptions::new().read(true).write(false).open(file_name){
-                Ok(file)=>{file},
-                Err(e)=>{println!("プラグインはインストールされませんでした。({e})");return;}
-            };
-            let dest = match OpenOptions::new().create_new(true).read(false).truncate(true).write(true).open(dest_path){
-                Ok(file)=>{file},
-                Err(e)=>{println!("同名のプラグインがすでにインストールされています。({e})");return;}
-            };
-            let mut buf=Vec::new();
-            let mut src = BufReader::new(src);
-            if let Err(e)=src.read_to_end(&mut buf){println!("読み込みエラー({e})");}
-            let mut dest = BufWriter::new(dest);
-            if let Err(e)=dest.write(&mut buf){println!("書き込みエラー({e})");}
-            println!("プラグイン \"{install_dll}\" は正しくインストールされました。");
-        };
         return;
     }
     sethook();
