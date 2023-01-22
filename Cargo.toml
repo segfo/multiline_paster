@@ -14,8 +14,8 @@ serde_derive = "1.0.152"
 toml = "0.5.10"
 dirs = "4.0.0"
 libloading = "0.7"
-toolbox={path="../libtoolbox"}
-multiline_parser_pluginlib={path="../multiline_parser_pluginlib"}
+toolbox={path="./libtoolbox"}
+multiline_parser_pluginlib={path="./multiline_parser_pluginlib"}
 [dependencies.async-std]
 features = ["attributes", "std"]
 version = "1.12.0"
