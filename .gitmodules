@@ -1,7 +1,3 @@
-[submodule "lib_keyboard_input"]
-	path = lib_keyboard_input
-	url = https://github.com/segfo/lib_keyboard_input
-	branch = main
 [submodule "multiline_parser_pluginlib"]
 	path = multiline_parser_pluginlib
 	url = https://github.com/segfo/multiline_parser_pluginlib
