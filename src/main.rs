@@ -20,8 +20,7 @@ type KeyHandlerFunc = unsafe extern "system" fn(u32, KBDLLHOOKSTRUCT) -> PluginR
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct CommandLineArgs {
-    /// 動作モードがクリップボード経由でペーストされます（デフォルト：キーボードエミュレーションでのペースト）
-    /// 本モードはバーストモードと排他です。
+    /// インストールしたいプラグインDLLのパス（ファイル名）を指定します。
     #[arg(long)]
     install_dll: Option<String>,
 }
