@@ -31,7 +31,7 @@ fn try_install_plugin() -> CommandLineArgs {
             command!().arg(arg!(--install_dll "インストールするDLLファイルパスを指定します。"));
         t.print_help();
         println!("\n⚡アドオンによる追加オプション⚡\n（-h/--helpでヘルプ表示をサポートしているアドオンでのみ表示されます）");
-    } else if args.len() > 1 &&(args[1] == "--install_dll"){
+    } else if args.len() > 1 &&(args[1] == "--install-dll"){
         return CommandLineArgs::parse()
     }
     CommandLineArgs { install_dll: None }
@@ -42,7 +42,6 @@ async fn main() {
     let conf: MasterConfig = ConfigLoader::load_file("config.toml");
     if let Some(install_dll) = try_install_plugin().install_dll {
         let mkdir_result = std::fs::create_dir(&conf.plugin_directory);
-        // let path = PathBuf::from(install_dll);
         let mut dest_path = PathBuf::from(conf.plugin_directory);
         let dll = PathBuf::from(&install_dll);
         if let Some(file_name) = dll.file_name() {
