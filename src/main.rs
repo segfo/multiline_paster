@@ -20,7 +20,7 @@ type KeyHandlerFunc = unsafe extern "system" fn(u32, KBDLLHOOKSTRUCT) -> PluginR
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct CommandLineArgs {
-    /// インストールしたいプラグインDLLのパス（ファイル名）を指定します。
+    /// インストールするDLLファイルパスを指定します。
     #[arg(long)]
     install_dll: Option<String>,
 }
