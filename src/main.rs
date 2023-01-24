@@ -1,15 +1,11 @@
 use std::{
-    collections::HashMap,
     fs::OpenOptions,
     io::{BufReader, BufWriter, Read, Write},
     path::PathBuf,
-    str::FromStr,
 };
 
-use async_std::path::Path;
-use libloading::{Library, Symbol};
+use libloading:: Symbol;
 use multiline_parser_pluginlib::{plugin::*, result::*};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use toolbox::config_loader::ConfigLoader;
 use windows::{
     Win32::Foundation::*,

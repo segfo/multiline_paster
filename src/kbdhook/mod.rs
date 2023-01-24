@@ -1,18 +1,11 @@
 use once_cell::unsync::*;
-use std::ffi::OsString;
-use std::os::windows::ffi::OsStringExt;
-use std::{
-    collections::VecDeque,
-    sync::{Mutex, RwLock},
-};
+use std::sync::RwLock;
 use windows::Win32::{
     Foundation::*,
-    UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
+    UI::{ WindowsAndMessaging::*},
 };
 
-use async_std::task;
 use multiline_parser_pluginlib::result::*;
-use multiline_parser_pluginlib::{plugin::*, result::*};
 
 static mut hook: HHOOK = HHOOK(0);
 static mut stroke_callback: Lazy<RwLock<StrokeMessage>> =

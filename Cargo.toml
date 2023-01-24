@@ -8,7 +8,6 @@ version = "2.0.0"
 [dependencies]
 clap = {version = "4.0.32", features = ["derive", "cargo"]}
 once_cell = "1.16.0"
-send_input = {path = "./lib_keyboard_input"}
 serde = { version = "^1.0.101", features = ["derive"] }
 serde_derive = "1.0.152"
 toml = "0.5.10"
@@ -29,7 +28,6 @@ features = [
   "Win32_System_SystemServices",
   "Win32_System_Memory",
   "Win32_System_WindowsProgramming",
-  "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_TextServices",
   "Win32_System_Console",
 ]
