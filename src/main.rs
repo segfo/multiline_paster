@@ -28,7 +28,7 @@ fn try_install_plugin() -> CommandLineArgs {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 && (args[1] == "-h" || args[1] == "--help") {
         let mut t =
-            command!().arg(arg!(--install_dll "インストールするDLLファイルパスを指定します。"));
+            command!().arg(arg!(--install-dll "インストールするDLLファイルパスを指定します。"));
         t.print_help();
         println!("\n⚡アドオンによる追加オプション⚡\n（-h/--helpでヘルプ表示をサポートしているアドオンでのみ表示されます）");
     } else if args.len() > 1 &&(args[1] == "--install-dll"){
