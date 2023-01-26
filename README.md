@@ -36,7 +36,7 @@
 |line_delay_msec|1行ペーストした後に入るディレイ（ミリ秒）を設定します。連続で複数行ペーストする際の挙動を安定させる役割があります。（バースト入力モードでのみ使用されます）|
 |char_delay_msec|1文字入力毎に入るディレイ（ミリ秒）を設定します。特に意味はありません。ライブコーディングを成功させたいような時に使える機能です。ブラッディ・マンデイみのあるデモ動画に使えるかもしれません。|
 |max_line_length|コピーの出来る1行あたりの最大文字数です。改行までが長すぎるとひたすらに待たされます。そのような長大な文字列を誤ってコピーしないように制限をかけています。0で解除できます。|
-|text_encoders|モディファイアです。ペースト時に文字列をエンコードするように動作します。様々な機能があります。詳しくは各モディファイアのヘルプ（`multiline_paster --installed-plugins`）を確認してください。|
+|text_modifiers|モディファイアです。ペースト時に文字列をエンコードするように動作します。様々な機能があります。詳しくは各モディファイアのヘルプ（`multiline_paster --installed-plugins`）を確認してください。|
 
 ### 設定ファイルのサンプル
 ```logic_config.toml
@@ -46,8 +46,8 @@ char_delay_msec = 0
 copy_wait_msec = 250
 max_line_length = 512
 # 以下のようにコメントアウトも出来ます
-# text_encoders=["multiline_paster_encoder_jwt.dll"]
-text_encoders=["multiline_paster_encoder_jwt.dll","multiline_paster_encoder_rot13.dll"]
+# text_modifiers=["multiline_paster_encoder_jwt.dll"]
+text_modifiers=["multiline_paster_encoder_jwt.dll","multiline_paster_encoder_rot13.dll"]
 ```
 
 # ツールの使い方
