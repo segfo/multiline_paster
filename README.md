@@ -8,32 +8,47 @@
 [使い方はこっち（動画説明あり）](https://qiita.com/segfo/items/7c92c9401dd1ce5ad02f)
 
 # インストールの方法
-## Rustがインストールされている場合
-推奨
-```
-cargo install --git=https://github.com/segfo/multiline_paster
-```
-
-自分でバイナリを配置したい場合
-```
-git clone --recursive https://github.com/segfo/multiline_paster/
-cd multiline_paster
-cargo build --release
-```
-
-## Rustがインストールされてない場合
 [リリース画面](https://github.com/segfo/multiline_paster/releases)から好きなものを持っていくが良い。
 
-# 概要
-```
-multiline_paster.exe -h    
-Usage: multiline_paster.exe [OPTIONS]
+|置いてあるもの|内容|おすすめ度合い|
+|---|---|---|
+|full_package|プラグインと実行ファイルのセット|万人向け|
+|plugins.zip|プラグインとプラグインインストール用のスクリプト|cargo install --gitでインストールする人におすすめ|
 
-Options:
-      --clipboard  動作モードがクリップボード経由でペーストされます（デフォルト：キーボードエミュレーションでのペースト） 本モードはバーストモードと排他です。
-      --burst      バーストモード（フォームに対する連続入力モード）にするか選択できます。
-  -h, --help       Print help information
-  -V, --version    Print version information
+あとは自由にパスを通してよしなに使ってほしい。
+
+# 機能概要
+|機能|v1.6.x|v2.0.0+|
+|---|---|---|
+|キーボードエミュレーション|O|O
+|クリップボード経由のコピー|O|O
+|拡張機能|X|O|
+|ホットキー無効化|X|O|
+
+プラグインのインストール先は、インストールされたバイナリと同じディレクトリに作成される  
+`multiline_paster_plugins`フォルダです。  
+実行したディレクトリに有るconfig.tomlに記述することで変更できます。  
+また、`logic_config.toml`はプラグインの読み込みなど、プログラムの挙動を細かく変更できます。
+
+## 設定ファイルの説明
+|キー|役割|
+|---|---|
+|tabindex_key|TabIndexの通り、ペーストが完了した際タブを押下して次のフォームへ移動しようと試みます。(Clipboardモードでは無視されます)|
+|line_delay_msec|1行ペーストした後に入るディレイ（ミリ秒）を設定します。連続で複数行ペーストする際の挙動を安定させる役割があります。（バースト入力モードでのみ使用されます）|
+|char_delay_msec|1文字入力毎に入るディレイ（ミリ秒）を設定します。特に意味はありません。ライブコーディングを成功させたいような時に使える機能です。ブラッディ・マンデイみのあるデモ動画に使えるかもしれません。|
+|max_line_length|コピーの出来る1行あたりの最大文字数です。改行までが長すぎるとひたすらに待たされます。そのような長大な文字列を誤ってコピーしないように制限をかけています。0で解除できます。|
+|text_encoders|プラグインです。ペースト時に文字列をエンコードするように動作します。様々な機能があります。詳しくは各プラグインのヘルプ（`multiline_paster --installed-plugins`）を確認してください。|
+
+### 設定ファイルのサンプル
+```logic_config.toml
+tabindex_key = "\t"
+line_delay_msec = 200
+char_delay_msec = 0
+copy_wait_msec = 250
+max_line_length = 512
+# 以下のようにコメントアウトも出来ます
+# text_encoders=["multiline_paster_encoder_jwt.dll"]
+text_encoders=["multiline_paster_encoder_jwt.dll","multiline_paster_encoder_rot13.dll"]
 ```
 
 # ツールの使い方
@@ -92,7 +107,8 @@ Options:
 ## バースト入力モード（通称：バーストモード）
 TABキーを自動で入力して隣のフォームに移動しながら入力するモードです。  
 `multiline_paster --burst`
-v1.4以降のバージョンでは、フォーム移動がTABキー以外の場合でも対応できます。（矢印キーは除く）  
+v1.4～v1.6.xのバージョンでは、`config.toml`を変更することでフォーム移動がTABキー以外の場合でも対応できます。（矢印キーは除く）  
+v2.0以降のバージョンでは`logic_config.toml`を変更することで同様に変更できます。
 クリップボードモードでは使えません。  
 （もしクリップボードモードで使いたかったらいい感じに改造してPull Request送ってほしい）  
 
