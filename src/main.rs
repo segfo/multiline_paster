@@ -1,10 +1,10 @@
 use std::{
     fs::OpenOptions,
     io::{BufReader, BufWriter, Read, Write},
-    path::PathBuf,
+    path::PathBuf, f32::consts::E,
 };
 
-use libloading:: Symbol;
+use libloading::Symbol;
 use multiline_parser_pluginlib::{plugin::*, result::*};
 use toolbox::config_loader::ConfigLoader;
 use windows::{
@@ -21,18 +21,27 @@ type KeyHandlerFunc = unsafe extern "system" fn(u32, KBDLLHOOKSTRUCT) -> PluginR
 #[command(author, version, about, long_about = None)]
 struct CommandLineArgs {
     /// インストールするDLLファイルパスを指定します。
-    #[arg(long="install_dll")]
+    #[arg(long)]
     install_dll: Option<String>,
 }
 fn try_install_plugin() -> CommandLineArgs {
     let args: Vec<String> = std::env::args().collect();
+    let mut cmd = CommandLineArgs::command();
     if args.len() > 1 && (args[1] == "-h" || args[1] == "--help") {
-        let mut t =
-            command!().arg(arg!(--install_dll "インストールするDLLファイルパスを指定します。"));
-        t.print_help();
+        cmd.print_help();
         println!("\n⚡アドオンによる追加オプション⚡\n（-h/--helpでヘルプ表示をサポートしているアドオンでのみ表示されます）");
-    } else if args.len() > 1 &&(args[1] == "--install_dll"){
-        return CommandLineArgs::parse()
+    } else {
+        if let Ok(matcher) = cmd.clone().try_get_matches() {
+            return if let Some(dll) = matcher.get_one::<String>("install-dll") {
+                CommandLineArgs {
+                    install_dll: Some(dll.to_owned()),
+                }
+            } else {
+                CommandLineArgs { install_dll: None }
+            };
+        }else if args.len() > 1 && (args[1] == "-V" || args[1] == "--version"){
+            cmd.get_matches();
+        }
     }
     CommandLineArgs { install_dll: None }
 }
@@ -62,11 +71,11 @@ async fn main() {
             {
                 Ok(file) => file,
                 Err(e) => {
-                    let msg = match mkdir_result{
-                        Ok(_)=>format!("同名のプラグインがすでにインストールされています。("),
-                        Err(e)=>format!("プラグインフォルダがありません。({e} / ")
+                    let msg = match mkdir_result {
+                        Ok(_) => format!("同名のプラグインがすでにインストールされています。("),
+                        Err(e) => format!("プラグインフォルダがありません。({e} / "),
                     };
-                    println!("{}{e})",msg);
+                    println!("{}{e})", msg);
                     return;
                 }
             };
