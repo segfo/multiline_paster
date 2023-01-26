@@ -21,17 +21,17 @@ type KeyHandlerFunc = unsafe extern "system" fn(u32, KBDLLHOOKSTRUCT) -> PluginR
 #[command(author, version, about, long_about = None)]
 struct CommandLineArgs {
     /// インストールするDLLファイルパスを指定します。
-    #[arg(long)]
+    #[arg(long="install_dll")]
     install_dll: Option<String>,
 }
 fn try_install_plugin() -> CommandLineArgs {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 && (args[1] == "-h" || args[1] == "--help") {
         let mut t =
-            command!().arg(arg!(--install-dll "インストールするDLLファイルパスを指定します。"));
+            command!().arg(arg!(--install_dll "インストールするDLLファイルパスを指定します。"));
         t.print_help();
         println!("\n⚡アドオンによる追加オプション⚡\n（-h/--helpでヘルプ表示をサポートしているアドオンでのみ表示されます）");
-    } else if args.len() > 1 &&(args[1] == "--install-dll"){
+    } else if args.len() > 1 &&(args[1] == "--install_dll"){
         return CommandLineArgs::parse()
     }
     CommandLineArgs { install_dll: None }
