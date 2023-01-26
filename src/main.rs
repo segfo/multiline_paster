@@ -1,7 +1,8 @@
 use std::{
+    f32::consts::E,
     fs::OpenOptions,
     io::{BufReader, BufWriter, Read, Write},
-    path::PathBuf, f32::consts::E,
+    path::PathBuf,
 };
 
 use libloading::Symbol;
@@ -27,23 +28,23 @@ struct CommandLineArgs {
 fn try_install_plugin() -> CommandLineArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut cmd = CommandLineArgs::command();
-    if args.len() > 1 && (args[1] == "-h" || args[1] == "--help") {
-        cmd.print_help();
-        println!("\n⚡アドオンによる追加オプション⚡\n（-h/--helpでヘルプ表示をサポートしているアドオンでのみ表示されます）");
-    } else {
-        if let Ok(matcher) = cmd.clone().try_get_matches() {
-            return if let Some(dll) = matcher.get_one::<String>("install-dll") {
-                CommandLineArgs {
-                    install_dll: Some(dll.to_owned()),
-                }
-            } else {
-                CommandLineArgs { install_dll: None }
-            };
-        }else if args.len() > 1 && (args[1] == "-V" || args[1] == "--version"){
-            cmd.get_matches();
+    if args.len() > 1 {
+        if args[1] == "-h" || args[1] == "--help" {
+            cmd.print_help();
+            println!("\n⚡アドオンによる追加オプション⚡\n（-h/--helpでヘルプ表示をサポートしているアドオンでのみ表示されます）");
+            CommandLineArgs { install_dll: None }
+        } else {
+            CommandLineArgs {
+                install_dll: cmd
+                    .clone()
+                    .get_matches()
+                    .get_one::<String>("install_dll")
+                    .cloned(),
+            }
         }
+    } else {
+        CommandLineArgs::parse()
     }
-    CommandLineArgs { install_dll: None }
 }
 
 #[async_std::main]
