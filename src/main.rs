@@ -28,19 +28,25 @@ struct CommandLineArgs {
 fn try_install_plugin() -> CommandLineArgs {
     let args: Vec<String> = std::env::args().collect();
     let mut cmd = CommandLineArgs::command();
+    let opts = ["--install-dll", "-V", "--version"];
     if args.len() > 1 {
         if args[1] == "-h" || args[1] == "--help" {
             cmd.print_help();
             println!("\n⚡アドオンによる追加オプション⚡\n（-h/--helpでヘルプ表示をサポートしているアドオンでのみ表示されます）");
             CommandLineArgs { install_dll: None }
         } else {
-            CommandLineArgs {
-                install_dll: cmd
-                    .clone()
-                    .get_matches()
-                    .get_one::<String>("install_dll")
-                    .cloned(),
+            for opt in opts {
+                if args[1] == opt {
+                    return CommandLineArgs {
+                        install_dll: cmd
+                            .clone()
+                            .get_matches()
+                            .get_one::<String>("install_dll")
+                            .cloned(),
+                    };
+                }
             }
+            CommandLineArgs{install_dll:None}
         }
     } else {
         CommandLineArgs::parse()
@@ -97,6 +103,10 @@ async fn main() {
     if let Err(e) = pm.load_plugin(&conf.addon_name) {
         println!("メインロジック・アドオンがロードできませんでした。\n{}", e);
         return;
+    }
+    let loadlist = pm.get_plugin_ordered_list().clone();
+    for lib_name in loadlist{
+        pm.set_plugin_activate_state(&lib_name, PluginActivateState::Activate);
     }
     sethook();
     let mut msg = MSG::default();
