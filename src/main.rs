@@ -49,7 +49,7 @@ fn try_install_plugin() -> CommandLineArgs {
             CommandLineArgs{install_dll:None}
         }
     } else {
-        CommandLineArgs::parse()
+        CommandLineArgs{install_dll:None}
     }
 }
 
