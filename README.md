@@ -66,7 +66,7 @@ text_modifiers=["multiline_paster_encoder_jwt.dll","multiline_paster_encoder_rot
 |---|---|
 |CTRL+C|連続コピー|
 |CTRL+ALT+C|クリップボード内データを全削除する|
-|CTRL+ALT+Z|クリップボード内データの最新のコピーデータを一つ削除する|
+|CTRL+ALT+Z|クリップボード内データに対してアンドゥします|
 |CTRL+ALT+1|1番目に読み込んだモディファイアの有効化・無効化を切り替えます|
 |CTRL+ALT+2|2番目に読み込んだモディファイアの有効化・無効化を切り替えます|
 |CTRL+ALT+3|3番目に読み込んだモディファイアの有効化・無効化を切り替えます|
