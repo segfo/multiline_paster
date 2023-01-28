@@ -13,3 +13,4 @@ plugins
 **/*.exe
 **/*.dll
 **/*.zip
+*config.toml
