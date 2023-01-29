@@ -77,7 +77,9 @@ text_modifiers=["multiline_paster_encoder_jwt.dll","multiline_paster_encoder_rot
 |CTRL+ALT+8|8番目に読み込んだモディファイアの有効化・無効化を切り替えます|
 |CTRL+ALT+9|9番目に読み込んだモディファイアの有効化・無効化を切り替えます|
 |CTRL+ALT+Q|モディファイアパレットをひとつ先に進めて、切り替えます|
-|CTRL+ALT+SHIFT+Q|モディファイアパレットをひとつ前に進めて、切り替えます|
+|CTRL+ALT+SHIFT+Q|モディファイアパレットをひとつ前に戻して、切り替えます|
+|CTRL+ALT+M|バーストモード・通常入力モードを切り替えます|
+|CTRL+ALT+SHIFT+M|クリップボード入力モードと、キーボードエミュレーションモードを切り替えます|
 |CTRL+ALT+0|アプリの機能を一時的に停止します。もう一度押すとアプリの機能を使えるようになります|
 
 ### モディファイアパレットって何？
@@ -111,11 +113,11 @@ text_modifiers=["multiline_paster_encoder_jwt.dll","multiline_paster_encoder_rot
 
 # 動作モードについて
 動作モードは2種類あります。
-1. DirectInputモード
+1. キーボードエミュレーションモード
 2. Clipboard経由モード
 
 それぞれの特徴を説明します。
-## DirectInputモード
+## キーボードエミュレーションモード
 キーボード入力をエミュレーションするモードです。  
 デフォルトの挙動になります。  
 ### メリット
@@ -127,6 +129,7 @@ text_modifiers=["multiline_paster_encoder_jwt.dll","multiline_paster_encoder_rot
 - 入力がClipboard経由モードよりも若干ゆっくりです
 
 ### 使い方
+クリップボードモードで起動していても`CTRL+ALT+SHIFT+M`で相互切り替えが出来ます。
 ペースト対象のアプリのIMEを切って使ってください。  
 とにかくIMEを切れ。  
 いいな、IMEを切るんだ。  
@@ -136,7 +139,7 @@ text_modifiers=["multiline_paster_encoder_jwt.dll","multiline_paster_encoder_rot
 クリップボードに存在するテキストデータを1行ごと上書きするモードです。  
 ### メリット
 - IMEのモードに関わらず常にコピーしたデータが寸分違わずにペーストされます
-- DirectInputよりも高速です
+- 長大なテキストに関してのペースト速度は、キーボードエミュレーションモードより高速です。
 ### デメリット
 - クリップボードのデータが上書きされていきます。
 - バーストモードは使えません。
@@ -144,6 +147,8 @@ text_modifiers=["multiline_paster_encoder_jwt.dll","multiline_paster_encoder_rot
 ### 使い方
 `--clipboard`オプションを有効化することで使えます。
 例：`multiline_paster --clipboard`
+オプション無しで起動しても、`CTRL+ALT+SHIFT+M`でキーボードエミュレーションモードとの相互切り替えが出来ます。
+また、長大な文字列（`logic_config.toml`のmax_line_lengthで定義される文字数以上）の場合クリップボードモードでペーストされます。
 
 ## バースト入力モード（通称：バーストモード）
 TABキーを自動で入力して隣のフォームに移動しながら入力するモードです。  
