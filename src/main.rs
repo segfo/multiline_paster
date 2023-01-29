@@ -3,10 +3,12 @@ use std::{
     fs::OpenOptions,
     io::{BufReader, BufWriter, Read, Write},
     path::PathBuf,
+    sync::Mutex,
 };
 
 use libloading::Symbol;
 use multiline_parser_pluginlib::{plugin::*, result::*};
+use once_cell::sync::Lazy;
 use toolbox::config_loader::ConfigLoader;
 use windows::{
     Win32::Foundation::*,
@@ -46,12 +48,16 @@ fn try_install_plugin() -> CommandLineArgs {
                     };
                 }
             }
-            CommandLineArgs{install_dll:None}
+            CommandLineArgs { install_dll: None }
         }
     } else {
-        CommandLineArgs{install_dll:None}
+        CommandLineArgs { install_dll: None }
     }
 }
+mod msg_hook;
+pub static mut plugin: Lazy<Mutex<PluginManager>> =
+    Lazy::new(|| Mutex::new(PluginManager::new("dummy path")));
+pub static mut addon_name: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
 
 #[async_std::main]
 async fn main() {
@@ -99,35 +105,44 @@ async fn main() {
         };
         return;
     }
-    let mut pm = PluginManager::new(&conf.plugin_directory);
-    if let Err(e) = pm.load_plugin(&conf.addon_name) {
+    let mut plugin_manager = PluginManager::new(&conf.plugin_directory);
+    if let Err(e) = plugin_manager.load_plugin(&conf.addon_name) {
         println!("メインロジック・アドオンがロードできませんでした。\n{}", e);
         return;
     }
-    let loadlist = pm.get_plugin_ordered_list().clone();
-    for lib_name in loadlist{
-        pm.set_plugin_activate_state(&lib_name, PluginActivateState::Activate);
+    {
+        let mut pm = unsafe { plugin.lock().unwrap() };
+        let mut laddon_name = unsafe { addon_name.lock().unwrap() };
+            *pm = plugin_manager;
+        *laddon_name = conf.addon_name.to_owned();
+        let loadlist = pm.get_plugin_ordered_list().clone();
+        for lib_name in loadlist {
+            pm.set_plugin_activate_state(&lib_name, PluginActivateState::Activate);
+        }
+        sethook();
+        let mut stroke = StrokeMessage::default();
+        let kf: Symbol<KeyHandlerFunc> = pm
+            .get_plugin_function(&conf.addon_name, "key_down")
+            .unwrap();
+        let kd = *kf;
+        let kf: Symbol<KeyHandlerFunc> =
+            pm.get_plugin_function(&conf.addon_name, "key_up").unwrap();
+        let ku = *kf;
+        stroke.set_key_down(Box::new(move |keystate, kbdllhook_struct| unsafe {
+            kd(keystate, kbdllhook_struct)
+        }));
+        stroke.set_key_up(Box::new(move |keystate, kbdllhook_struct| unsafe {
+            ku(keystate, kbdllhook_struct)
+        }));
+        set_stroke_callback(stroke);
+        if let Ok(init_plugin) = pm.get_plugin_function::<fn()>(&conf.addon_name, "init_plugin") {
+            init_plugin()
+        }
     }
-    sethook();
+    unsafe {
+        msg_hook::create_message_only_window();
+    }
     let mut msg = MSG::default();
-
-    let mut stroke = StrokeMessage::default();
-    let kf: Symbol<KeyHandlerFunc> = pm
-        .get_plugin_function(&conf.addon_name, "key_down")
-        .unwrap();
-    let kd = *kf;
-    let kf: Symbol<KeyHandlerFunc> = pm.get_plugin_function(&conf.addon_name, "key_up").unwrap();
-    let ku = *kf;
-    stroke.set_key_down(Box::new(move |keystate, kbdllhook_struct| unsafe {
-        kd(keystate, kbdllhook_struct)
-    }));
-    stroke.set_key_up(Box::new(move |keystate, kbdllhook_struct| unsafe {
-        ku(keystate, kbdllhook_struct)
-    }));
-    set_stroke_callback(stroke);
-    if let Ok(init_plugin) = pm.get_plugin_function::<fn()>(&conf.addon_name, "init_plugin") {
-        init_plugin()
-    }
     unsafe {
         SetConsoleCtrlHandler(Some(exit_handler), BOOL(1));
         while GetMessageW(&mut msg, HWND::default(), 0, 0).into() {

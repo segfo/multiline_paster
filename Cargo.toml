@@ -30,6 +30,7 @@ features = [
   "Win32_System_WindowsProgramming",
   "Win32_UI_TextServices",
   "Win32_System_Console",
+  "Win32_System_Threading"
 ]
 version = "0.43.0"
 
