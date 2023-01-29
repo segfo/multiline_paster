@@ -22,9 +22,11 @@ unsafe extern "system" fn window_message_proc(
     match msg {
         WM_NCCREATE => {
             AddClipboardFormatListener(hwnd);
+            #[cfg(debug_assertions)]
             println!("起動した");
         }
         WM_NCDESTROY => {
+            #[cfg(debug_assertions)]
             println!("後処理");
         }
         WM_CLIPBOARDUPDATE => {
