@@ -26,6 +26,7 @@
 |ホットキー無効化|X|O|
 |起動中のペーストモード切り替え|X|O|
 |コピー動作のundo機能|X|O|
+|IME自動OFF|X|O|
 
 モディファイアのインストール先は、インストールされたバイナリと同じディレクトリに作成される`multiline_paster_plugins`フォルダです。  
 実行したディレクトリに有るconfig.tomlに記述することで変更できます。  
@@ -133,10 +134,6 @@ text_modifiers=["multiline_paster_encoder_jwt.dll","multiline_paster_encoder_rot
 
 ### 使い方
 クリップボードモードで起動していても`CTRL+ALT+SHIFT+M`で相互切り替えが出来ます。
-ペースト対象のアプリのIMEを切って使ってください。  
-とにかくIMEを切れ。  
-いいな、IMEを切るんだ。  
-将来的にはIMEを自動的にオフる機能をつけるつもり。めんどいし。  
 
 ## Clipboard経由モード
 クリップボードに存在するテキストデータを1行ごと上書きするモードです。  
