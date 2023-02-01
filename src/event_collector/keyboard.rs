@@ -7,8 +7,8 @@ use windows::Win32::{
 
 use multiline_parser_pluginlib::result::*;
 
-static mut hook: HHOOK = HHOOK(0);
-static mut stroke_callback: Lazy<RwLock<StrokeMessage>> =
+static mut HOOK: HHOOK = HHOOK(0);
+static mut STROKE_CALLBACK: Lazy<RwLock<StrokeMessage>> =
     Lazy::new(|| RwLock::new(StrokeMessage::default()));
 
 pub struct StrokeMessage {
@@ -16,7 +16,7 @@ pub struct StrokeMessage {
     key_up: Box<dyn Fn(u32, KBDLLHOOKSTRUCT) -> PluginResult>,
 }
 pub fn set_stroke_callback(stroke_msg: StrokeMessage) {
-    let mut stroke_msg_cb = unsafe { stroke_callback.write().unwrap() };
+    let mut stroke_msg_cb = unsafe { STROKE_CALLBACK.write().unwrap() };
     *stroke_msg_cb = stroke_msg;
 }
 impl StrokeMessage {
@@ -38,7 +38,7 @@ impl StrokeMessage {
 
 impl Default for StrokeMessage {
     fn default() -> Self {
-        let default_key_down_up = Box::new(|state, ks| -> PluginResult { PluginResult::Success });
+        let default_key_down_up = Box::new(|_state, _ks| -> PluginResult { PluginResult::Success });
         Self {
             key_down: default_key_down_up.clone(),
             key_up: default_key_down_up,
@@ -51,7 +51,7 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
     if HC_ACTION as i32 == ncode {
         let keystate = wparam.0 as u32;
         let stroke_msg = unsafe { *(lparam.0 as *const KBDLLHOOKSTRUCT) };
-        let cb = unsafe { stroke_callback.read().unwrap() };
+        let cb = unsafe { STROKE_CALLBACK.read().unwrap() };
         match keystate {
             WM_KEYDOWN => match (cb.key_down)(keystate, stroke_msg) {
                 PluginResult::NoChain => {
@@ -92,14 +92,14 @@ pub extern "system" fn hook_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> 
             _ => {}
         }
     }
-    unsafe { CallNextHookEx(hook, ncode, wparam, lparam) }
+    unsafe { CallNextHookEx(HOOK, ncode, wparam, lparam) }
 }
 
 #[no_mangle]
 pub extern "C" fn sethook() -> bool {
     unsafe {
         let dll: HINSTANCE = HINSTANCE(0); // dllの場合はPROCESS_ATTACHされたときのh_instを入れる。
-        hook = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), dll, 0) {
+        HOOK = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), dll, 0) {
             Ok(handle) => handle,
             Err(_) => {
                 return false;
@@ -112,8 +112,8 @@ pub extern "C" fn sethook() -> bool {
 #[no_mangle]
 pub extern "C" fn unhook() -> bool {
     unsafe {
-        if !hook.is_invalid() {
-            return UnhookWindowsHookEx(hook).as_bool();
+        if !HOOK.is_invalid() {
+            return UnhookWindowsHookEx(HOOK).as_bool();
         }
         false
     }

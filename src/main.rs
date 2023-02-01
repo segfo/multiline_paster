@@ -5,6 +5,7 @@ use std::{
     sync::Mutex,
 };
 
+use clap::*;
 use libloading::Symbol;
 use multiline_parser_pluginlib::{plugin::*, result::*};
 use once_cell::sync::Lazy;
@@ -13,12 +14,11 @@ use windows::{
     Win32::Foundation::*,
     Win32::{System::Console::SetConsoleCtrlHandler, UI::WindowsAndMessaging::*},
 };
-use clap::*;
 mod event_collector;
 use event_collector::*;
-pub static mut plugin: Lazy<Mutex<PluginManager>> =
+pub static mut PLUGIN: Lazy<Mutex<PluginManager>> =
     Lazy::new(|| Mutex::new(PluginManager::new("dummy path")));
-pub static mut addon_name: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
+pub static mut ADDON_NAME: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
 
 type KeyHandlerFunc = unsafe extern "system" fn(u32, KBDLLHOOKSTRUCT) -> PluginResult;
 
@@ -35,7 +35,7 @@ fn try_install_plugin() -> CommandLineArgs {
     let opts = ["--install-dll", "-V", "--version"];
     if args.len() > 1 {
         if args[1] == "-h" || args[1] == "--help" {
-            cmd.print_help();
+            let _r = cmd.print_help();
             println!("\n⚡アドオンによる追加オプション⚡\n（-h/--helpでヘルプ表示をサポートしているアドオンでのみ表示されます）");
             CommandLineArgs { install_dll: None }
         } else {
@@ -109,9 +109,9 @@ async fn main() {
         return;
     }
     {
-        let mut pm = unsafe { plugin.lock().unwrap() };
-        let mut laddon_name = unsafe { addon_name.lock().unwrap() };
-            *pm = plugin_manager;
+        let mut pm = unsafe { PLUGIN.lock().unwrap() };
+        let mut laddon_name = unsafe { ADDON_NAME.lock().unwrap() };
+        *pm = plugin_manager;
         *laddon_name = conf.addon_name.to_owned();
         let loadlist = pm.get_plugin_ordered_list().clone();
         for lib_name in loadlist {

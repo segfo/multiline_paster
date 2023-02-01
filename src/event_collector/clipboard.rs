@@ -1,6 +1,3 @@
-use multiline_parser_pluginlib::plugin::PluginManager;
-use once_cell::sync::Lazy;
-use std::sync::Mutex;
 use windows::{
     w,
     Win32::{
@@ -16,8 +13,8 @@ use windows::{
 unsafe extern "system" fn window_message_proc(
     hwnd: HWND,
     msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
+    _wparam: WPARAM,
+    _lparam: LPARAM,
 ) -> LRESULT {
     match msg {
         WM_NCCREATE => {
@@ -30,10 +27,10 @@ unsafe extern "system" fn window_message_proc(
             println!("後処理");
         }
         WM_CLIPBOARDUPDATE => {
-            let pm = unsafe { crate::plugin.lock().unwrap() };
-            let laddon_name = unsafe { crate::addon_name.lock().unwrap() };
-            if let Ok(update_clipboard) = pm
-                .get_plugin_function::<fn()>(&laddon_name, "update_clipboard")
+            let pm = unsafe { crate::PLUGIN.lock().unwrap() };
+            let laddon_name = unsafe { crate::ADDON_NAME.lock().unwrap() };
+            if let Ok(update_clipboard) =
+                pm.get_plugin_function::<fn()>(&laddon_name, "update_clipboard")
             {
                 update_clipboard();
             }
@@ -67,4 +64,3 @@ pub unsafe fn create_message_recv_window() {
         );
     }
 }
-
