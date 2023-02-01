@@ -1,5 +1,4 @@
 use std::{
-    f32::consts::E,
     fs::OpenOptions,
     io::{BufReader, BufWriter, Read, Write},
     path::PathBuf,
@@ -14,9 +13,12 @@ use windows::{
     Win32::Foundation::*,
     Win32::{System::Console::SetConsoleCtrlHandler, UI::WindowsAndMessaging::*},
 };
-mod kbdhook;
 use clap::*;
-use kbdhook::*;
+mod event_collector;
+use event_collector::*;
+pub static mut plugin: Lazy<Mutex<PluginManager>> =
+    Lazy::new(|| Mutex::new(PluginManager::new("dummy path")));
+pub static mut addon_name: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
 
 type KeyHandlerFunc = unsafe extern "system" fn(u32, KBDLLHOOKSTRUCT) -> PluginResult;
 
@@ -54,10 +56,6 @@ fn try_install_plugin() -> CommandLineArgs {
         CommandLineArgs { install_dll: None }
     }
 }
-mod msg_hook;
-pub static mut plugin: Lazy<Mutex<PluginManager>> =
-    Lazy::new(|| Mutex::new(PluginManager::new("dummy path")));
-pub static mut addon_name: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
 
 #[async_std::main]
 async fn main() {
@@ -119,8 +117,8 @@ async fn main() {
         for lib_name in loadlist {
             pm.set_plugin_activate_state(&lib_name, PluginActivateState::Activate);
         }
-        sethook();
-        let mut stroke = StrokeMessage::default();
+        keyboard::sethook();
+        let mut stroke = keyboard::StrokeMessage::default();
         let kf: Symbol<KeyHandlerFunc> = pm
             .get_plugin_function(&conf.addon_name, "key_down")
             .unwrap();
@@ -134,13 +132,13 @@ async fn main() {
         stroke.set_key_up(Box::new(move |keystate, kbdllhook_struct| unsafe {
             ku(keystate, kbdllhook_struct)
         }));
-        set_stroke_callback(stroke);
+        keyboard::set_stroke_callback(stroke);
         if let Ok(init_plugin) = pm.get_plugin_function::<fn()>(&conf.addon_name, "init_plugin") {
             init_plugin()
         }
     }
     unsafe {
-        msg_hook::create_message_only_window();
+        clipboard::create_message_recv_window();
     }
     let mut msg = MSG::default();
     unsafe {
@@ -153,6 +151,6 @@ async fn main() {
 }
 
 unsafe extern "system" fn exit_handler(_ctrltype: u32) -> BOOL {
-    unhook();
+    keyboard::unhook();
     BOOL(0)
 }

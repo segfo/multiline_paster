@@ -12,7 +12,7 @@ use windows::{
         },
     },
 };
-
+// クリップボード変更イベントを収集しDLLに通知する
 unsafe extern "system" fn window_message_proc(
     hwnd: HWND,
     msg: u32,
@@ -43,8 +43,8 @@ unsafe extern "system" fn window_message_proc(
     LRESULT(1)
 }
 
-pub unsafe fn create_message_only_window() {
-    let class_name = w!("MessageOnlyWnd");
+pub unsafe fn create_message_recv_window() {
+    let class_name = w!("MessageRecvWnd");
     let mut wx = WNDCLASSEXW::default();
     wx.cbSize = std::mem::size_of::<WNDCLASSEXW>() as u32;
     wx.lpfnWndProc = Some(window_message_proc);
@@ -54,7 +54,7 @@ pub unsafe fn create_message_only_window() {
         CreateWindowExW(
             WINDOW_EX_STYLE(0),
             class_name,
-            w!("dummy"),
+            w!("MessageRecvWnd"),
             WINDOW_STYLE(0),
             0,
             0,
@@ -67,3 +67,4 @@ pub unsafe fn create_message_only_window() {
         );
     }
 }
+
